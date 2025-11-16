@@ -254,15 +254,20 @@ def generate_units():
         units = generate_units_with_ai(chapitres, matiere_data, annee_pei, nb_unites, enseignant)
         print(f"[DEBUG] Generated {len(units)} units successfully")
         
-        # Sauvegarder la session dans MongoDB
+        # Sauvegarder la session et les unités dans MongoDB
+        session_id = None
         try:
             session_id = save_session(enseignant, matiere_id, annee_pei, chapitres, units)
             if session_id:
                 print(f"[DEBUG] Session saved to MongoDB: {session_id}")
+                # Sauvegarder aussi chaque unité individuellement
+                for unit in units:
+                    save_unit(enseignant, matiere_id, annee_pei, unit)
+                print(f"[DEBUG] {len(units)} units saved to MongoDB")
         except Exception as e:
-            print(f"[WARNING] Failed to save session to MongoDB: {e}")
+            print(f"[WARNING] Failed to save to MongoDB: {e}")
         
-        return jsonify({"units": units})
+        return jsonify({"units": units, "session_id": session_id})
     
     except Exception as e:
         import traceback
@@ -446,8 +451,71 @@ def create_word_document(unite, matiere_data, annee_pei, enseignant):
     print(f"[DEBUG] Template path: {template_path}")
     print(f"[DEBUG] Template exists: {os.path.exists(template_path)}")
     
-    doc = Document(template_path)
-    print(f"[DEBUG] Template loaded, {len(doc.tables)} tables found")
+    try:
+        doc = Document(template_path)
+        print(f"[DEBUG] Template loaded, {len(doc.tables)} tables found")
+    except Exception as e:
+        print(f"[ERROR] Failed to load template: {e}")
+        print(f"[DEBUG] Creating document from scratch instead")
+        # Fallback: créer un document simple sans template
+        doc = Document()
+        doc.add_heading('Planification d\'Unité PEI', 0)
+        
+        # Ajouter les informations de base
+        doc.add_heading('Informations générales', 1)
+        doc.add_paragraph(f'Enseignant: {enseignant}')
+        doc.add_paragraph(f'Matière: {matiere_data.get("nom", "")}')
+        doc.add_paragraph(f'Titre de l\'unité: {unite.get("titre_unite", "")}')
+        doc.add_paragraph(f'Année PEI: {annee_pei}')
+        doc.add_paragraph(f'Durée: {unite.get("duree", "")} heures')
+        
+        # Concepts
+        doc.add_heading('Concepts', 1)
+        doc.add_paragraph(f'Concept clé: {unite.get("concept_cle", "")}')
+        doc.add_paragraph(f'Concepts connexes: {", ".join(unite.get("concepts_connexes", []))}')
+        doc.add_paragraph(f'Contexte mondial: {unite.get("contexte_mondial", "")}')
+        
+        # Énoncé de recherche
+        doc.add_heading('Énoncé de recherche', 1)
+        doc.add_paragraph(unite.get("enonce_recherche", ""))
+        
+        # Questions
+        doc.add_heading('Questions de recherche', 1)
+        doc.add_heading('Questions factuelles', 2)
+        for q in unite.get("questions_factuelles", []):
+            doc.add_paragraph(q, style='List Bullet')
+        
+        doc.add_heading('Questions conceptuelles', 2)
+        for q in unite.get("questions_conceptuelles", []):
+            doc.add_paragraph(q, style='List Bullet')
+        
+        doc.add_heading('Questions invitant au débat', 2)
+        for q in unite.get("questions_debat", []):
+            doc.add_paragraph(q, style='List Bullet')
+        
+        # Objectifs spécifiques
+        doc.add_heading('Objectifs spécifiques', 1)
+        objectifs_text = format_objectifs_specifiques(
+            unite.get('objectifs_specifiques', []),
+            matiere_data,
+            annee_pei
+        )
+        doc.add_paragraph(objectifs_text)
+        
+        # Skip les remplacements de placeholders puisqu'on n'a pas de template
+        # Sauvegardez directement
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"Unite_PEI_{matiere_data['nom']}_{timestamp}.docx"
+        
+        if os.path.exists('/tmp'):
+            filepath = os.path.join('/tmp', filename)
+        else:
+            filepath = os.path.join(app.config['GENERATED_UNITS_FOLDER'], filename)
+            os.makedirs(app.config['GENERATED_UNITS_FOLDER'], exist_ok=True)
+        
+        doc.save(filepath)
+        print(f"[DEBUG] Simple document saved to: {filepath}")
+        return filename
     
     # Remplacer les placeholders dans les tableaux
     for table in doc.tables:

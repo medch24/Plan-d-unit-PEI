@@ -5,126 +5,114 @@ from pymongo import MongoClient
 from datetime import datetime
 import os
 
-# Configuration MongoDB
-MONGO_URL = os.environ.get('MONGO_URL', 'mongodb+srv://mohamedsherif:Mmedch86@planpei.jcvu2uq.mongodb.net/?appName=PlanPEI')
+# Récupérer l'URL MongoDB depuis les variables d'environnement
+MONGODB_URL = os.environ.get('MONGODB_URL', 'mongodb+srv://mohamedsherif:Mmedch86@planpei.jcvu2uq.mongodb.net/?appName=PlanPEI')
 
-# Client MongoDB (singleton)
-_client = None
-_db = None
-
-def get_db():
-    """Obtient une connexion à la base de données MongoDB"""
-    global _client, _db
-    if _db is None:
-        try:
-            _client = MongoClient(MONGO_URL, serverSelectionTimeoutMS=5000)
-            _db = _client['planpei']
-            # Test de connexion
-            _client.server_info()
-            print(f"[DEBUG] Connected to MongoDB successfully")
-        except Exception as e:
-            print(f"[ERROR] Failed to connect to MongoDB: {e}")
-            _db = None
-    return _db
+# Connexion MongoDB
+try:
+    client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=5000)
+    db = client['planpei']
+    units_collection = db['units']
+    sessions_collection = db['sessions']
+    print(f"[DEBUG] MongoDB connected successfully")
+except Exception as e:
+    print(f"[ERROR] MongoDB connection failed: {e}")
+    client = None
+    db = None
+    units_collection = None
+    sessions_collection = None
 
 def init_db():
-    """Initialise la base de données"""
+    """Initialise la base de données et crée les index"""
+    if db is None:
+        print("[WARNING] MongoDB not connected, skipping initialization")
+        return
+    
     try:
-        db = get_db()
-        if db is not None:
-            # Créer les collections si elles n'existent pas
-            if 'units' not in db.list_collection_names():
-                db.create_collection('units')
-            if 'sessions' not in db.list_collection_names():
-                db.create_collection('sessions')
-            
-            # Créer des index pour améliorer les performances
-            db.units.create_index([('enseignant', 1), ('matiere', 1), ('annee_pei', 1)])
-            db.sessions.create_index([('enseignant', 1), ('created_at', -1)])
-            
-            print(f"[DEBUG] MongoDB database initialized successfully")
-            return True
+        # Créer des index pour améliorer les performances
+        units_collection.create_index([("enseignant", 1), ("created_at", -1)])
+        units_collection.create_index([("matiere", 1), ("annee_pei", 1)])
+        sessions_collection.create_index([("enseignant", 1), ("created_at", -1)])
+        print(f"[DEBUG] Database indexes created")
     except Exception as e:
-        print(f"[ERROR] Failed to initialize MongoDB: {e}")
-        return False
+        print(f"[ERROR] Failed to create indexes: {e}")
 
 def save_unit(enseignant, matiere, annee_pei, unite):
-    """Sauvegarde une unité dans la base de données"""
+    """Sauvegarde une unité dans MongoDB"""
+    if units_collection is None:
+        print("[WARNING] MongoDB not connected, unit not saved")
+        return None
+    
     try:
-        db = get_db()
-        if db is None:
-            print("[WARNING] MongoDB not available, skipping save")
-            return None
-        
         document = {
-            'enseignant': enseignant,
-            'matiere': matiere,
-            'annee_pei': annee_pei,
-            'titre_unite': unite.get('titre_unite', ''),
-            'data': unite,
-            'created_at': datetime.utcnow()
+            "enseignant": enseignant,
+            "matiere": matiere,
+            "annee_pei": annee_pei,
+            "titre_unite": unite.get('titre_unite', ''),
+            "data": unite,
+            "created_at": datetime.utcnow()
         }
         
-        result = db.units.insert_one(document)
-        unit_id = str(result.inserted_id)
-        
-        print(f"[DEBUG] Unit saved with ID: {unit_id}")
-        return unit_id
+        result = units_collection.insert_one(document)
+        print(f"[DEBUG] Unit saved with ID: {result.inserted_id}")
+        return str(result.inserted_id)
     except Exception as e:
         print(f"[ERROR] Failed to save unit: {e}")
         return None
 
 def save_session(enseignant, matiere, annee_pei, chapitres, units):
     """Sauvegarde une session complète de génération"""
+    if sessions_collection is None:
+        print("[WARNING] MongoDB not connected, session not saved")
+        return None
+    
     try:
-        db = get_db()
-        if db is None:
-            print("[WARNING] MongoDB not available, skipping save")
-            return None
-        
         document = {
-            'enseignant': enseignant,
-            'matiere': matiere,
-            'annee_pei': annee_pei,
-            'chapitres': chapitres,
-            'units': units,
-            'created_at': datetime.utcnow()
+            "enseignant": enseignant,
+            "matiere": matiere,
+            "annee_pei": annee_pei,
+            "chapitres": chapitres,
+            "units": units,
+            "nb_unites": len(units),
+            "created_at": datetime.utcnow()
         }
         
-        result = db.sessions.insert_one(document)
-        session_id = str(result.inserted_id)
-        
-        # Sauvegarder aussi chaque unité individuellement
-        for unite in units:
-            save_unit(enseignant, matiere, annee_pei, unite)
-        
-        print(f"[DEBUG] Session saved with ID: {session_id}, {len(units)} units")
-        return session_id
+        result = sessions_collection.insert_one(document)
+        print(f"[DEBUG] Session saved with ID: {result.inserted_id}")
+        return str(result.inserted_id)
     except Exception as e:
         print(f"[ERROR] Failed to save session: {e}")
         return None
 
 def get_units_by_teacher(enseignant, matiere=None, annee_pei=None):
     """Récupère les unités d'un enseignant"""
+    if units_collection is None:
+        print("[WARNING] MongoDB not connected, returning empty list")
+        return []
+    
     try:
-        db = get_db()
-        if db is None:
-            return []
-        
-        query = {'enseignant': enseignant}
+        query = {"enseignant": enseignant}
         
         if matiere:
-            query['matiere'] = matiere
+            query["matiere"] = matiere
         
         if annee_pei:
-            query['annee_pei'] = annee_pei
+            query["annee_pei"] = annee_pei
         
-        units = list(db.units.find(query).sort('created_at', -1))
+        cursor = units_collection.find(query).sort("created_at", -1)
         
-        # Convertir ObjectId en string
-        for unit in units:
-            unit['_id'] = str(unit['_id'])
+        units = []
+        for doc in cursor:
+            units.append({
+                'id': str(doc['_id']),
+                'matiere': doc['matiere'],
+                'annee_pei': doc['annee_pei'],
+                'titre_unite': doc['titre_unite'],
+                'data': doc['data'],
+                'created_at': doc['created_at'].isoformat()
+            })
         
+        print(f"[DEBUG] Found {len(units)} units for teacher: {enseignant}")
         return units
     except Exception as e:
         print(f"[ERROR] Failed to get units: {e}")
@@ -132,35 +120,54 @@ def get_units_by_teacher(enseignant, matiere=None, annee_pei=None):
 
 def get_recent_sessions(limit=10):
     """Récupère les sessions récentes"""
+    if sessions_collection is None:
+        print("[WARNING] MongoDB not connected, returning empty list")
+        return []
+    
     try:
-        db = get_db()
-        if db is None:
-            return []
+        cursor = sessions_collection.find().sort("created_at", -1).limit(limit)
         
-        sessions = list(db.sessions.find().sort('created_at', -1).limit(limit))
+        sessions = []
+        for doc in cursor:
+            sessions.append({
+                'id': str(doc['_id']),
+                'enseignant': doc['enseignant'],
+                'matiere': doc['matiere'],
+                'annee_pei': doc['annee_pei'],
+                'chapitres': doc['chapitres'],
+                'units': doc['units'],
+                'nb_unites': doc.get('nb_unites', len(doc['units'])),
+                'created_at': doc['created_at'].isoformat()
+            })
         
-        # Convertir ObjectId en string
-        for session in sessions:
-            session['_id'] = str(session['_id'])
-        
+        print(f"[DEBUG] Found {len(sessions)} recent sessions")
         return sessions
     except Exception as e:
         print(f"[ERROR] Failed to get sessions: {e}")
         return []
 
 def get_session_by_id(session_id):
-    """Récupère une session par son ID"""
+    """Récupère une session spécifique par son ID"""
+    if sessions_collection is None:
+        print("[WARNING] MongoDB not connected")
+        return None
+    
     try:
         from bson.objectid import ObjectId
-        db = get_db()
-        if db is None:
-            return None
+        doc = sessions_collection.find_one({"_id": ObjectId(session_id)})
         
-        session = db.sessions.find_one({'_id': ObjectId(session_id)})
-        if session:
-            session['_id'] = str(session['_id'])
-        
-        return session
+        if doc:
+            return {
+                'id': str(doc['_id']),
+                'enseignant': doc['enseignant'],
+                'matiere': doc['matiere'],
+                'annee_pei': doc['annee_pei'],
+                'chapitres': doc['chapitres'],
+                'units': doc['units'],
+                'nb_unites': doc.get('nb_unites', len(doc['units'])),
+                'created_at': doc['created_at'].isoformat()
+            }
+        return None
     except Exception as e:
         print(f"[ERROR] Failed to get session: {e}")
         return None
