@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur d'Unités PEI</title>
+    <link rel="stylesheet" href="/static/css/styles.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🎓 Générateur d'Unités PEI de l'IB</h1>
+            <p class="subtitle">Créez automatiquement vos unités d'enseignement du Programme d'Éducation Intermédiaire</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Étape 1: Informations générales -->
+            <section id="step1" class="step active">
+                <h2>📋 Étape 1: Informations Générales</h2>
+                
+                <div class="form-group">
+                    <label for="enseignant">Nom de l'enseignant(e) :</label>
+                    <input type="text" id="enseignant" placeholder="Ex: Marie Dupont">
+                </div>
+
+                <div class="form-group">
+                    <label for="matiere">Matière :</label>
+                    <select id="matiere">
+                        <option value="">-- Sélectionnez une matière --</option>
+                        <option value="design">Design</option>
+                        <option value="langue_litterature">Langue et littérature</option>
+                        <option value="acquisition_langues">Acquisition de langues</option>
+                        <option value="individus_societes">Individus et sociétés</option>
+                        <option value="sciences">Sciences</option>
+                        <option value="mathematiques">Mathématiques</option>
+                        <option value="arts">Arts</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="annee_pei">Année du PEI :</label>
+                    <select id="annee_pei">
+                        <option value="">-- Sélectionnez une année --</option>
+                        <option value="pei1-2">PEI 1 & 2</option>
+                        <option value="pei3-4">PEI 3 & 4</option>
+                        <option value="pei5">PEI 5</option>
+                    </select>
+                </div>
+
+                <button class="btn btn-primary" onclick="goToStep2()">Suivant →</button>
+            </section>
+
+            <!-- Étape 2: Saisie des chapitres -->
+            <section id="step2" class="step">
+                <h2>📚 Étape 2: Saisie des Chapitres du Programme</h2>
+                <p class="info-text">
+                    Saisissez tous les chapitres de votre programme. L'IA les regroupera automatiquement en 
+                    <strong id="nb-unites-text">4 unités</strong> cohérentes.
+                </p>
+
+                <div id="chapitres-container">
+                    <div class="chapitre-item" data-index="0">
+                        <div class="chapitre-header">
+                            <h3>Chapitre 1</h3>
+                            <button class="btn-icon btn-remove" onclick="removeChapitre(0)" title="Supprimer">
+                                ✕
+                            </button>
+                        </div>
+                        <div class="form-group">
+                            <label>Titre du chapitre :</label>
+                            <input type="text" class="chapitre-titre" placeholder="Ex: Introduction à la programmation">
+                        </div>
+                        <div class="form-group">
+                            <label>Contenu/Description :</label>
+                            <textarea class="chapitre-contenu" rows="3" placeholder="Décrivez le contenu du chapitre..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label>Durée (heures) :</label>
+                            <input type="number" class="chapitre-duree" min="1" value="10">
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-secondary" onclick="addChapitre()">+ Ajouter un chapitre</button>
+
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToStep1()">← Retour</button>
+                    <button class="btn btn-primary" onclick="generateUnits()">Générer les Unités 🚀</button>
+                </div>
+            </section>
+
+            <!-- Étape 3: Résultats -->
+            <section id="step3" class="step">
+                <h2>✨ Étape 3: Unités Générées</h2>
+                <p class="info-text">
+                    Voici les unités générées automatiquement. Vous pouvez les télécharger au format Word.
+                </p>
+
+                <div id="loading" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Génération des unités en cours...</p>
+                </div>
+
+                <div id="units-container"></div>
+
+                <div class="button-group">
+                    <button class="btn btn-secondary" onclick="goToStep2()">← Modifier les chapitres</button>
+                    <button class="btn btn-primary" onclick="downloadAllUnits()">Télécharger Toutes les Unités</button>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
