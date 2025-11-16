@@ -167,29 +167,49 @@ def get_matiere_details(matiere_id):
 def generate_units():
     """Génère les unités PEI basées sur les chapitres fournis"""
     try:
-        data = request.json
+        # Try to get JSON data, handle if it's None
+        data = request.get_json(force=True, silent=True)
+        if data is None:
+            data = request.json
+        
+        if data is None:
+            return jsonify({"error": "No JSON data received"}), 400
+            
+        print(f"[DEBUG] Received data: {data}")
+        
         matiere_id = data.get('matiere')
         annee_pei = data.get('annee_pei')
         enseignant = data.get('enseignant')
         chapitres = data.get('chapitres', [])
+        
+        print(f"[DEBUG] matiere_id={matiere_id}, annee_pei={annee_pei}, enseignant={enseignant}")
+        print(f"[DEBUG] chapitres count: {len(chapitres)}")
         
         if not matiere_id or not annee_pei or not chapitres:
             return jsonify({"error": "Données manquantes"}), 400
         
         matiere_data = MATIERES_DATA.get(matiere_id)
         if not matiere_data:
-            return jsonify({"error": "Matière non trouvée"}), 404
+            return jsonify({"error": f"Matière non trouvée: {matiere_id}"}), 404
+        
+        print(f"[DEBUG] Matiere data loaded: {matiere_data.get('nom')}")
         
         # Déterminer le nombre d'unités à générer
         nb_unites = 6 if matiere_id == "langue_litterature" else 4
+        print(f"[DEBUG] Generating {nb_unites} units")
         
         # Utiliser l'IA pour regrouper les chapitres et générer les unités
         units = generate_units_with_ai(chapitres, matiere_data, annee_pei, nb_unites, enseignant)
+        print(f"[DEBUG] Generated {len(units)} units successfully")
         
         return jsonify({"units": units})
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[ERROR] Exception in generate_units: {str(e)}")
+        print(f"[ERROR] Traceback: {error_details}")
+        return jsonify({"error": str(e), "details": error_details}), 500
 
 def generate_units_with_ai(chapitres, matiere_data, annee_pei, nb_unites, enseignant):
     """Utilise l'IA pour regrouper les chapitres et générer les unités"""
@@ -271,6 +291,7 @@ Réponds UNIQUEMENT en JSON valide avec ce format:
 
 def generate_units_basic(chapitres, matiere_data, annee_pei, nb_unites):
     """Génération basique des unités sans IA"""
+    print(f"[DEBUG] generate_units_basic called with {len(chapitres)} chapitres, {nb_unites} units to generate")
     units = []
     chapitres_per_unit = max(1, len(chapitres) // nb_unites)
     
@@ -278,6 +299,8 @@ def generate_units_basic(chapitres, matiere_data, annee_pei, nb_unites):
         start_idx = i * chapitres_per_unit
         end_idx = start_idx + chapitres_per_unit if i < nb_unites - 1 else len(chapitres)
         unit_chapitres = chapitres[start_idx:end_idx]
+        
+        print(f"[DEBUG] Unit {i+1}: chapitres from {start_idx} to {end_idx}")
         
         duree_totale = sum(ch.get('duree', 0) for ch in unit_chapitres)
         titres = [ch.get('titre', '') for ch in unit_chapitres]

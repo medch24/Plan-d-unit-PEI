@@ -187,7 +187,10 @@ async function generateUnits() {
         });
         
         if (!response.ok) {
-            throw new Error('Erreur lors de la génération des unités');
+            const errorData = await response.json().catch(() => ({}));
+            const errorMessage = errorData.error || 'Erreur lors de la génération des unités';
+            const errorDetails = errorData.details || '';
+            throw new Error(`${errorMessage}\n${errorDetails}`);
         }
         
         const data = await response.json();
