@@ -7,6 +7,7 @@ import os
 from datetime import datetime
 import anthropic
 from matieres_data_complete import MATIERES_DATA_COMPLETE, CONTEXTES_MONDIAUX
+from database import init_db, save_session, save_unit, get_units_by_teacher
 
 app = Flask(__name__)
 app.config['GENERATED_UNITS_FOLDER'] = 'generated_units'
@@ -14,8 +15,33 @@ app.config['GENERATED_UNITS_FOLDER'] = 'generated_units'
 # Créer le dossier generated_units s'il n'existe pas
 os.makedirs(app.config['GENERATED_UNITS_FOLDER'], exist_ok=True)
 
-# Charger les données des matières
-MATIERES_DATA = MATIERES_DATA_COMPLETE
+# Initialiser la base de données
+init_db()
+
+# Fonction pour expandre les années PEI
+def expand_pei_years(data):
+    """Expands pei1-2 to pei1 and pei2, pei3-4 to pei3 and pei4"""
+    expanded = {}
+    for key, value in data.items():
+        if key == "pei1-2":
+            expanded["pei1"] = value
+            expanded["pei2"] = value
+        elif key == "pei3-4":
+            expanded["pei3"] = value
+            expanded["pei4"] = value
+        else:
+            expanded[key] = value
+    return expanded
+
+# Charger et expandre les données des matières
+MATIERES_DATA = {}
+for matiere_key, matiere_data in MATIERES_DATA_COMPLETE.items():
+    MATIERES_DATA[matiere_key] = {
+        **matiere_data,
+        "objectifs": expand_pei_years(matiere_data.get("objectifs", {}))
+    }
+
+print(f"[DEBUG] Années PEI disponibles: {list(MATIERES_DATA['design']['objectifs'].keys())}")
 
 # Ancienne définition (supprimée car remplacée par l'import)
 OLD_MATIERES_DATA = {
@@ -163,6 +189,32 @@ def get_matiere_details(matiere_id):
         return jsonify(MATIERES_DATA[matiere_id])
     return jsonify({"error": "Matière non trouvée"}), 404
 
+@app.route('/api/sessions/<enseignant>')
+def get_teacher_sessions(enseignant):
+    """Récupère les sessions d'un enseignant"""
+    try:
+        from database import get_recent_sessions
+        sessions = get_recent_sessions(limit=20)
+        # Filtrer par enseignant
+        teacher_sessions = [s for s in sessions if s.get('enseignant') == enseignant]
+        return jsonify({"sessions": teacher_sessions})
+    except Exception as e:
+        print(f"[ERROR] Failed to get sessions: {e}")
+        return jsonify({"error": str(e), "sessions": []}), 500
+
+@app.route('/api/session/<session_id>')
+def get_session_details(session_id):
+    """Récupère les détails d'une session"""
+    try:
+        from database import get_session_by_id
+        session = get_session_by_id(session_id)
+        if session:
+            return jsonify(session)
+        return jsonify({"error": "Session non trouvée"}), 404
+    except Exception as e:
+        print(f"[ERROR] Failed to get session: {e}")
+        return jsonify({"error": str(e)}), 500
+
 @app.route('/api/generate-units', methods=['POST'])
 def generate_units():
     """Génère les unités PEI basées sur les chapitres fournis"""
@@ -201,6 +253,14 @@ def generate_units():
         # Utiliser l'IA pour regrouper les chapitres et générer les unités
         units = generate_units_with_ai(chapitres, matiere_data, annee_pei, nb_unites, enseignant)
         print(f"[DEBUG] Generated {len(units)} units successfully")
+        
+        # Sauvegarder la session dans MongoDB
+        try:
+            session_id = save_session(enseignant, matiere_id, annee_pei, chapitres, units)
+            if session_id:
+                print(f"[DEBUG] Session saved to MongoDB: {session_id}")
+        except Exception as e:
+            print(f"[WARNING] Failed to save session to MongoDB: {e}")
         
         return jsonify({"units": units})
     
