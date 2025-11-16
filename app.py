@@ -335,33 +335,59 @@ def generate_units_basic(chapitres, matiere_data, annee_pei, nb_unites):
 def generate_document():
     """Génère le document Word pour une unité"""
     try:
-        data = request.json
+        # Try to get JSON data
+        data = request.get_json(force=True, silent=True)
+        if data is None:
+            data = request.json
+        
+        if data is None:
+            return jsonify({"error": "No JSON data received"}), 400
+        
+        print(f"[DEBUG] generate_document - Received data keys: {data.keys()}")
+        
         unite = data.get('unite')
         matiere_id = data.get('matiere')
         annee_pei = data.get('annee_pei')
         enseignant = data.get('enseignant', '')
+        
+        print(f"[DEBUG] matiere_id={matiere_id}, annee_pei={annee_pei}, enseignant={enseignant}")
+        print(f"[DEBUG] unite titre: {unite.get('titre_unite') if unite else 'None'}")
         
         if not unite or not matiere_id or not annee_pei:
             return jsonify({"error": "Données manquantes"}), 400
         
         matiere_data = MATIERES_DATA.get(matiere_id)
         if not matiere_data:
-            return jsonify({"error": "Matière non trouvée"}), 404
+            return jsonify({"error": f"Matière non trouvée: {matiere_id}"}), 404
+        
+        print(f"[DEBUG] Starting document generation for: {unite.get('titre_unite')}")
         
         # Générer le document Word
         filename = create_word_document(unite, matiere_data, annee_pei, enseignant)
         
+        print(f"[DEBUG] Document generated successfully: {filename}")
+        
         return jsonify({"filename": filename, "download_url": f"/download/{filename}"})
     
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[ERROR] Exception in generate_document: {str(e)}")
+        print(f"[ERROR] Traceback: {error_details}")
+        return jsonify({"error": str(e), "details": error_details}), 500
 
 def create_word_document(unite, matiere_data, annee_pei, enseignant):
     """Crée le document Word basé sur le template"""
     
+    print(f"[DEBUG] create_word_document called for: {unite.get('titre_unite')}")
+    
     # Charger le template (chemin relatif pour Vercel)
     template_path = os.path.join(os.path.dirname(__file__), 'public', 'Unité PEI.docx')
+    print(f"[DEBUG] Template path: {template_path}")
+    print(f"[DEBUG] Template exists: {os.path.exists(template_path)}")
+    
     doc = Document(template_path)
+    print(f"[DEBUG] Template loaded, {len(doc.tables)} tables found")
     
     # Remplacer les placeholders dans les tableaux
     for table in doc.tables:
@@ -394,12 +420,23 @@ def create_word_document(unite, matiere_data, annee_pei, enseignant):
                 cell.text = text
     
     # Sauvegarder le document
+    # Sur Vercel, utiliser /tmp pour l'écriture (système de fichiers en lecture seule ailleurs)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"Unite_PEI_{matiere_data['nom']}_{timestamp}.docx"
-    filepath = os.path.join(app.config['GENERATED_UNITS_FOLDER'], filename)
     
-    os.makedirs(app.config['GENERATED_UNITS_FOLDER'], exist_ok=True)
+    # Utiliser /tmp sur Vercel, generated_units/ en local
+    if os.path.exists('/tmp'):
+        # Environnement Vercel
+        filepath = os.path.join('/tmp', filename)
+        print(f"[DEBUG] Using Vercel /tmp directory: {filepath}")
+    else:
+        # Environnement local
+        filepath = os.path.join(app.config['GENERATED_UNITS_FOLDER'], filename)
+        os.makedirs(app.config['GENERATED_UNITS_FOLDER'], exist_ok=True)
+        print(f"[DEBUG] Using local directory: {filepath}")
+    
     doc.save(filepath)
+    print(f"[DEBUG] Document saved to: {filepath}")
     
     return filename
 
@@ -438,10 +475,30 @@ def format_objectifs_specifiques(objectifs_ids, matiere_data, annee_pei):
 @app.route('/download/<filename>')
 def download_file(filename):
     """Télécharge un fichier généré"""
-    filepath = os.path.join(app.config['GENERATED_UNITS_FOLDER'], filename)
-    if os.path.exists(filepath):
+    try:
+        # Chercher d'abord dans /tmp (Vercel), puis dans generated_units/ (local)
+        tmp_path = os.path.join('/tmp', filename)
+        local_path = os.path.join(app.config['GENERATED_UNITS_FOLDER'], filename)
+        
+        if os.path.exists(tmp_path):
+            filepath = tmp_path
+            print(f"[DEBUG] Serving file from /tmp: {filename}")
+        elif os.path.exists(local_path):
+            filepath = local_path
+            print(f"[DEBUG] Serving file from local directory: {filename}")
+        else:
+            print(f"[ERROR] File not found: {filename}")
+            print(f"[ERROR] Checked paths: {tmp_path}, {local_path}")
+            return jsonify({"error": f"File not found: {filename}"}), 404
+        
         return send_file(filepath, as_attachment=True)
-    return jsonify({"error": "Fichier non trouvé"}), 404
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[ERROR] Exception in download_file: {str(e)}")
+        print(f"[ERROR] Traceback: {error_details}")
+        return jsonify({"error": str(e), "details": error_details}), 404
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
