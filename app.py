@@ -11,6 +11,9 @@ from matieres_data_complete import MATIERES_DATA_COMPLETE, CONTEXTES_MONDIAUX
 app = Flask(__name__)
 app.config['GENERATED_UNITS_FOLDER'] = 'generated_units'
 
+# Créer le dossier generated_units s'il n'existe pas
+os.makedirs(app.config['GENERATED_UNITS_FOLDER'], exist_ok=True)
+
 # Charger les données des matières
 MATIERES_DATA = MATIERES_DATA_COMPLETE
 
@@ -333,8 +336,8 @@ def generate_document():
 def create_word_document(unite, matiere_data, annee_pei, enseignant):
     """Crée le document Word basé sur le template"""
     
-    # Charger le template
-    template_path = '/home/user/uploaded_files/Unité PEI.docx'
+    # Charger le template (chemin relatif pour Vercel)
+    template_path = os.path.join(os.path.dirname(__file__), 'public', 'Unité PEI.docx')
     doc = Document(template_path)
     
     # Remplacer les placeholders dans les tableaux
