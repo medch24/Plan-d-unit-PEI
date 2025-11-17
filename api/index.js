@@ -76,8 +76,8 @@ async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
   
   console.log('[INFO] Initializing Gemini AI');
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  // Use gemini-pro which is the stable, available model in v1beta
-  const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+  // Use current stable Gemini 1.5 Flash model (gemini-pro deprecated on v1beta)
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
   const nbUnites = matiere === "Langue et littérature" ? 6 : 4;
   console.log(`[INFO] Generating ${nbUnites} units for ${matiere} - ${classe}`);
