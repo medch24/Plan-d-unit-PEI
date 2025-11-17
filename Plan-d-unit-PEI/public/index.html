@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Plan d'Unité PEI</title>
+    <link rel="icon" type="image/svg+xml" href="favicon.svg">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Générateur de Plan d'Unité PEI</h1>
+            <p>Planifiez votre année scolaire en quelques clics grâce à l'IA Gemini.</p>
+        </header>
+
+        <main>
+            <div class="form-section">
+                <h2>Étape 1 : Informations Générales</h2>
+                <div class="form-group">
+                    <label for="enseignant">Enseignant(s) :</label>
+                    <input type="text" id="enseignant" placeholder="Entrez votre nom">
+                </div>
+                <div class="form-group">
+                    <label for="classe">Classe :</label>
+                    <select id="classe">
+                        <option value="PEI 1">PEI 1</option>
+                        <option value="PEI 2">PEI 2</option>
+                        <option value="PEI 3">PEI 3</option>
+                        <option value="PEI 4">PEI 4</option>
+                        <option value="PEI 5">PEI 5</option>
+                    </select>
+                    <small>PEI1 séparé, PEI2 séparé, PEI3 séparé, PEI4 séparé (déjà appliqué)</small>
+                </div>
+                <div class="form-group">
+                    <label for="matiere">Matière :</label>
+                    <select id="matiere">
+                        <option value="Design">Design</option>
+                        <option value="Langue et littérature">Langue et littérature</option>
+                        <option value="Acquisition de langues">Acquisition de langues</option>
+                        <option value="Individus et sociétés">Individus et sociétés</option>
+                        <option value="Sciences">Sciences</option>
+                        <option value="Mathématiques">Mathématiques</option>
+                        <option value="Arts">Arts</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="essai">Essai :</label>
+                    <select id="essai">
+                        <option value="1">Essai 1</option>
+                        <option value="2">Essai 2</option>
+                    </select>
+                    <button id="load-existing" class="btn-secondary" style="margin-left:10px; white-space:nowrap">Charger depuis la base</button>
+                </div>
+            </div>
+
+            <div class="form-section">
+                <h2>Étape 2 : Chapitres et Ressources</h2>
+                <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button id="add-row-btn" class="btn-secondary">+ Ajouter un chapitre</button>
+                    <label for="excel-upload" class="btn-secondary" style="margin: 0; cursor: pointer;">
+                        📊 Importer depuis Excel
+                    </label>
+                    <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display: none;">
+                    <small style="color: #6c757d;">Format: Colonne A = Chapitre, Colonne B = Ressource</small>
+                </div>
+                <table id="chapitres-table">
+                    <thead>
+                        <tr>
+                            <th>Chapitre</th>
+                            <th>Ressource(s) principale(s)</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- Les lignes seront ajoutées ici par JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="form-section">
+                <h2>Étape 3 : Génération</h2>
+                <button id="generate-btn" class="btn-primary">Générer les plans d'unités</button>
+            </div>
+        </main>
+        
+        <div id="loading" class="hidden">
+            <div class="spinner"></div>
+            <p>Génération en cours... Gemini réfléchit pour vous !</p>
+        </div>
+
+        <div id="results">
+            <!-- Les plans d'unités générés seront injectés ici -->
+        </div>
+
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>

@@ -7,7 +7,10 @@ Application web pour générer automatiquement des unités d'enseignement du Pro
 - **Interface intuitive** : Saisie facile des informations enseignant et des chapitres du programme
 - **Génération automatique** : L'IA regroupe intelligemment les chapitres en unités cohérentes
 - **Supports multiples** : 7 matières PEI supportées (Design, Langue et littérature, Acquisition de langues, etc.)
-- **Export Word** : Génération de documents Word formatés selon le template PEI
+- **Export Word complet** : Génération de documents Word formatés selon les templates PEI
+  - **Plans d'unité** : Tous les champs du template sont remplis (objectifs, évaluation, ressources, différenciation, réflexion)
+  - **Évaluations critériées** : Documents avec exercices générés par IA selon les critères d'évaluation
+- **Exercices générés par IA** : Gemini génère 3-4 exercices par critère (A.i, A.ii, B.i, etc.) adaptés au niveau
 - **Personnalisation** : Génère 4 unités (ou 6 pour Langue et littérature)
 
 ## 📚 Matières supportées
@@ -96,7 +99,18 @@ L'application regroupe automatiquement les chapitres similaires en unités cohé
   - Énoncé de recherche
   - Questions de recherche (factuelles, conceptuelles, débat)
   - Objectifs spécifiques
-- Téléchargement individuel ou groupé en format Word
+- **Export Plans d'unité** : Documents Word complets avec tous les champs remplis
+  - Objectifs spécifiques
+  - Évaluation sommative et formative
+  - Approches de l'apprentissage
+  - Contenu et processus d'apprentissage
+  - Ressources pédagogiques
+  - Stratégies de différenciation
+  - Réflexion (avant/pendant/après l'enseignement)
+- **Export Évaluations** : Documents d'évaluation critériée avec:
+  - Exercices générés par IA adaptés aux critères (A, B, C, D)
+  - Grilles d'évaluation avec descripteurs de niveaux (1-2, 3-4, 5-6, 7-8)
+  - Espaces de travail pour les élèves
 
 ## 🤖 Intelligence Artificielle
 
@@ -107,6 +121,11 @@ L'application utilise **Google Gemini AI** pour:
 - Générer des énoncés de recherche pertinents
 - Formuler des questions de recherche appropriées
 - Sélectionner les concepts et objectifs adaptés
+- **Générer des exercices d'évaluation** :
+  - 3-4 exercices par critère d'évaluation (A, B, C, D)
+  - Adaptés au niveau de l'élève (débutant/compétent/expérimenté)
+  - Basés sur les descripteurs PEI officiels
+  - Alignés avec les objectifs spécifiques de l'unité
 
 ### 🛡️ Système de Fallback Robuste
 
@@ -127,19 +146,35 @@ L'application implémente une **stratégie de haute disponibilité** avec:
 
 **Note**: Configurez `GEMINI_API_KEY` dans les variables d'environnement.
 
-## 📄 Structure du document Word généré
+## 📄 Structure des documents Word générés
 
-Le document Word généré comprend:
+### Plan d'Unité
+Le document de plan comprend **tous les champs remplis** :
 
 1. **En-tête** : Informations enseignant, matière, année, durée
 2. **Recherche** : Concepts clés, concepts connexes, contexte mondial, énoncé de recherche, questions de recherche
 3. **Objectifs spécifiques** : Critères d'évaluation détaillés
-4. **Sections vides** : À compléter par l'enseignant
-   - Évaluation sommative
-   - Approches de l'apprentissage
-   - Contenu et processus d'apprentissage
-   - Ressources
-   - Réflexions
+4. **Évaluation sommative** : Description des évaluations selon les critères
+5. **Approches de l'apprentissage** : Compétences développées (pensée critique, communication, etc.)
+6. **Contenu et processus d'apprentissage** : Détails des chapitres et activités
+7. **Ressources** : Manuels, ressources numériques, matériel nécessaire
+8. **Différenciation** : Stratégies d'adaptation selon les besoins des élèves
+9. **Évaluation formative** : Observations, questionnements, quizz formatifs
+10. **Réflexion** : Sections avant/pendant/après l'enseignement
+
+### Évaluation Critériée
+Le document d'évaluation comprend :
+
+1. **En-tête** : Titre de l'unité, matière, année, énoncé de recherche
+2. **Objectifs spécifiques** : Liste des objectifs évalués
+3. **Exercices d'évaluation** : Générés par IA pour chaque critère
+   - 3-4 exercices par critère (A, B, C, D)
+   - Adaptés au niveau et au contenu de l'unité
+   - Basés sur les descripteurs PEI officiels
+4. **Grilles d'évaluation** : Pour chaque critère
+   - Titre du critère (ex: "Critère A : Connaissance et compréhension")
+   - Tableau des descripteurs par niveaux (1-2, 3-4, 5-6, 7-8)
+   - Espaces de travail pour les élèves
 
 ## 🛠️ Technologies utilisées
 
