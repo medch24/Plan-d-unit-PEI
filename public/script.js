@@ -10,6 +10,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     addRowBtn.addEventListener('click', addRow);
     generateBtn.addEventListener('click', generatePlans);
+    document.getElementById('load-existing').addEventListener('click', loadFromDb);
 
     // Restore last form if any
     try { const last = JSON.parse(localStorage.getItem(SAVE_KEY)||'{}'); if(last.enseignant){ document.getElementById('enseignant').value = last.enseignant; document.getElementById('classe').value = last.classe||'PEI 1'; document.getElementById('matiere').value = last.matiere||'Design'; (last.chapitres||[]).forEach(c=>addRowWith(c.chapitre,c.ressource)); } } catch(_){}
@@ -51,7 +52,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        const data = { enseignant, classe, matiere, chapitres };
+        const essai = parseInt(document.getElementById('essai').value,10) || 1;
+        const data = { enseignant, classe, matiere, chapitres, essai };
         
         // 2. Afficher le chargement et préparer la requête
         loadingDiv.classList.remove('hidden');
@@ -79,7 +81,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // 4. Afficher les résultats
             displayResults(generatedData.unites, { enseignant, classe, matiere });
             // Save units to DB for this attempt essai 2 if requested later
-            await fetch('/api/save-units', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enseignant, classe, matiere, units: generatedData.unites, essai: 1 }) });
+            await fetch('/api/save-units', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enseignant, classe, matiere, units: generatedData.unites, essai }) });
 
         } catch (error) {
             resultsDiv.innerHTML = `<div class="error-message"><strong>Erreur :</strong> ${error.message}</div>`;
@@ -90,6 +92,20 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     
+    async function loadFromDb(){
+        const enseignant = document.getElementById('enseignant').value.trim();
+        const classe = document.getElementById('classe').value; const matiere = document.getElementById('matiere').value; const essai = parseInt(document.getElementById('essai').value,10)||1;
+        if(!enseignant){ alert('Entrez le nom enseignant'); return; }
+        loadingDiv.classList.remove('hidden');
+        try {
+            const url = `/api/units?enseignant=${encodeURIComponent(enseignant)}&classe=${encodeURIComponent(classe)}&matiere=${encodeURIComponent(matiere)}&essai=${essai}`;
+            const r = await fetch(url); const j = await r.json();
+            const last = (j.units||[]).slice(-1)[0];
+            if(!last){ alert('Aucun enregistrement'); return; }
+            displayResults(last.units || last.unites || [], { enseignant, classe, matiere });
+        } catch(e){ alert('Erreur de chargement'); } finally { loadingDiv.classList.add('hidden'); }
+    }
+
     function displayResults(unites, ctx) {
         if (!unites || unites.length === 0) {
             resultsDiv.innerHTML = '<p>Aucun plan d\'unité n\'a pu être généré.</p>';
