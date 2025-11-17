@@ -6,6 +6,7 @@
     <title>Générateur de Plan d'Unité PEI</title>
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -56,6 +57,14 @@
 
             <div class="form-section">
                 <h2>Étape 2 : Chapitres et Ressources</h2>
+                <div style="margin-bottom: 15px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+                    <button id="add-row-btn" class="btn-secondary">+ Ajouter un chapitre</button>
+                    <label for="excel-upload" class="btn-secondary" style="margin: 0; cursor: pointer;">
+                        📊 Importer depuis Excel
+                    </label>
+                    <input type="file" id="excel-upload" accept=".xlsx,.xls" style="display: none;">
+                    <small style="color: #6c757d;">Format: Colonne A = Chapitre, Colonne B = Ressource</small>
+                </div>
                 <table id="chapitres-table">
                     <thead>
                         <tr>
@@ -68,7 +77,6 @@
                         <!-- Les lignes seront ajoutées ici par JavaScript -->
                     </tbody>
                 </table>
-                <button id="add-row-btn" class="btn-secondary">+ Ajouter un chapitre</button>
             </div>
 
             <div class="form-section">

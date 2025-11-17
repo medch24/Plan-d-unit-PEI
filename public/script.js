@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', () => {
     addRowBtn.addEventListener('click', addRow);
     generateBtn.addEventListener('click', generatePlans);
     document.getElementById('load-existing').addEventListener('click', loadFromDb);
+    document.getElementById('excel-upload').addEventListener('change', handleExcelUpload);
 
     // Restore last form if any
     try { const last = JSON.parse(localStorage.getItem(SAVE_KEY)||'{}'); if(last.enseignant){ document.getElementById('enseignant').value = last.enseignant; document.getElementById('classe').value = last.classe||'PEI 1'; document.getElementById('matiere').value = last.matiere||'Design'; (last.chapitres||[]).forEach(c=>addRowWith(c.chapitre,c.ressource)); } } catch(_){}
@@ -29,6 +30,52 @@ document.addEventListener('DOMContentLoaded', () => {
         row.querySelector('.delete-row-btn').addEventListener('click', () => {
             row.remove();
         });
+    }
+
+    function handleExcelUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                
+                // Get first sheet
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                
+                // Clear existing rows except the first one
+                tableBody.innerHTML = '';
+                
+                // Add rows from Excel
+                let rowsAdded = 0;
+                jsonData.forEach((row, index) => {
+                    // Skip header row if it exists
+                    if (index === 0 && (row[0] === 'Chapitre' || row[0] === 'chapitre')) return;
+                    
+                    const chapitre = row[0] ? String(row[0]).trim() : '';
+                    const ressource = row[1] ? String(row[1]).trim() : '';
+                    
+                    if (chapitre) {
+                        addRowWith(chapitre, ressource);
+                        rowsAdded++;
+                    }
+                });
+                
+                alert(`✅ ${rowsAdded} chapitre(s) importé(s) depuis Excel!`);
+                
+            } catch (error) {
+                console.error('Erreur lors de la lecture du fichier Excel:', error);
+                alert('❌ Erreur lors de la lecture du fichier Excel. Assurez-vous que le format est correct.');
+            }
+        };
+        
+        reader.readAsArrayBuffer(file);
+        
+        // Reset file input
+        event.target.value = '';
     }
 
     async function generatePlans() {
