@@ -76,32 +76,76 @@ async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
   
   console.log('[INFO] Initializing Gemini AI');
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  // Use gemini-2.5-flash which is the current stable Gemini Flash model (Gemini 1.5 models are retired)
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
+  
+  // List of models to try in order (fallback strategy)
+  // Gemini 1.5 models are retired, use 2.x series only
+  const MODELS_TO_TRY = [
+    { name: "gemini-2.5-flash", description: "Gemini 2.5 Flash (primary)" },
+    { name: "gemini-2.0-flash", description: "Gemini 2.0 Flash (fallback 1)" },
+    { name: "gemini-2.5-flash-lite", description: "Gemini 2.5 Flash Lite (fallback 2)" },
+    { name: "gemini-2.0-flash-lite", description: "Gemini 2.0 Flash Lite (fallback 3)" }
+  ];
+  
   const nbUnites = matiere === "Langue et littérature" ? 6 : 4;
   console.log(`[INFO] Generating ${nbUnites} units for ${matiere} - ${classe}`);
   
   const prompt = `Tu es un expert PEI IB. Génère EXACTEMENT ${nbUnites} unités en regroupant ces chapitres en thèmes cohérents. Donne pour chaque unité: titre_unite, chapitres_inclus (index), duree totale estimée (en heures, somme "poids" approx 4h/chapitre si absent), concept_cle, 2-3 concepts_connexes, contexte_mondial, enonce_recherche, 2-3 questions_factuelles, 2-3 questions_conceptuelles, 2-3 questions_debat, objectifs_specifiques (liste d'IDs tels que A.i, B.ii...). Réponds EN JSON strict: {"unites":[{...}]}. Matière: ${matiere}. Année: ${classe}. Chapitres: ${JSON.stringify(chapitres)}.`;
 
-  try {
-    const res = await model.generateContent(prompt);
-    let text = res.response.text();
-    console.log('[INFO] Gemini response received, length:', text.length);
+  let lastError = null;
+  
+  // Try each model with retry logic
+  for (const modelConfig of MODELS_TO_TRY) {
+    console.log(`[INFO] Attempting with model: ${modelConfig.description}`);
+    const model = genAI.getGenerativeModel({ model: modelConfig.name });
     
-    // Clean code-fences if any
-    if (text.includes("```")) {
-      const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
-      if (m) text = m[1];
+    // Retry up to 3 times for each model (to handle temporary 503 errors)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        console.log(`[INFO] Attempt ${attempt}/3 with ${modelConfig.name}`);
+        const res = await model.generateContent(prompt);
+        let text = res.response.text();
+        console.log('[INFO] Gemini response received, length:', text.length);
+        
+        // Clean code-fences if any
+        if (text.includes("```")) {
+          const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
+          if (m) text = m[1];
+        }
+        
+        const json = JSON.parse(text);
+        console.log(`[SUCCESS] Generated units successfully with ${modelConfig.name}`);
+        return json.unites || [];
+      } catch (error) {
+        lastError = error;
+        const errorMsg = error.message || String(error);
+        console.error(`[ERROR] Attempt ${attempt}/3 failed with ${modelConfig.name}:`, errorMsg);
+        
+        // Check if it's a temporary error (503 overload) or permanent error (404 not found)
+        const isTemporaryError = errorMsg.includes('503') || errorMsg.includes('overloaded');
+        const isPermanentError = errorMsg.includes('404') || errorMsg.includes('not found');
+        
+        if (isPermanentError) {
+          console.warn(`[WARN] Model ${modelConfig.name} not available (404), trying next model...`);
+          break; // Skip to next model immediately
+        }
+        
+        if (isTemporaryError && attempt < 3) {
+          // Wait before retrying (exponential backoff: 1s, 2s, 4s)
+          const waitTime = Math.pow(2, attempt - 1) * 1000;
+          console.log(`[INFO] Waiting ${waitTime}ms before retry...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          continue; // Retry with same model
+        }
+        
+        // If not temporary or last attempt, try next model
+        break;
+      }
     }
-    
-    const json = JSON.parse(text);
-    console.log('[INFO] Successfully parsed JSON response');
-    return json.unites || [];
-  } catch (error) {
-    console.error('[ERROR] Gemini API call failed:', error.message);
-    throw new Error(`Erreur lors de la génération avec Gemini: ${error.message}`);
   }
+  
+  // If all models failed, throw the last error
+  console.error('[ERROR] All models failed. Last error:', lastError?.message);
+  throw new Error(`Erreur lors de la génération avec Gemini après avoir essayé tous les modèles: ${lastError?.message || 'Unknown error'}`);
 }
 
 function buildPlanDocx({ enseignant, matiere, classe, unite }) {
