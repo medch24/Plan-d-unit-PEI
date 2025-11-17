@@ -9,6 +9,15 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MongoClient, ObjectId } from "mongodb";
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType } from "docx";
 import { DESCRIPTEURS_COMPLETS } from "./descripteurs-complets.js";
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get __dirname equivalent in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URI || "";
@@ -158,13 +167,46 @@ async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
  * @param {object} descripteurs - Descriptors for the criteria
  * @returns {Promise<object>} - Generated exercises organized by criteria
  */
+/**
+ * Extract sub-criteria from descriptors (i, ii, iii, iv)
+ */
+function extractSubCriteria(descriptorText) {
+  if (!descriptorText || typeof descriptorText !== 'string') return {};
+  
+  const subCriteria = {};
+  const matches = descriptorText.matchAll(/([ivx]+)\.\s*([^;]+)/gi);
+  
+  for (const match of matches) {
+    const [, roman, text] = match;
+    subCriteria[roman.toLowerCase()] = text.trim();
+  }
+  
+  return subCriteria;
+}
+
+/**
+ * Get all sub-criteria for a criterion across all levels
+ */
+function getAllSubCriteria(criterionData) {
+  if (!criterionData || !criterionData.niveaux) return {};
+  
+  const allSubs = {};
+  for (const [level, text] of Object.entries(criterionData.niveaux)) {
+    if (level === '0') continue;
+    const subs = extractSubCriteria(text);
+    Object.assign(allSubs, subs); // Keep most detailed version
+  }
+  
+  return allSubs;
+}
+
 async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce, criteres, descripteurs }) {
   if (!GEMINI_API_KEY) {
     console.error('[ERROR] GEMINI_API_KEY is missing for exercise generation');
-    return {}; // Return empty if no API key
+    return { exercices: {}, subCriteria: {} };
   }
   
-  console.log('[INFO] Generating exercises with Gemini');
+  console.log('[INFO] 🎯 Generating exercises with Gemini for criteria:', criteres.join(', '));
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   
   const MODELS_TO_TRY = [
@@ -172,14 +214,27 @@ async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce
     { name: "gemini-2.0-flash", description: "Gemini 2.0 Flash (fallback 1)" }
   ];
   
-  // Build detailed prompt with descriptors
+  // Extract sub-criteria for each criterion
+  const allSubCriteria = {};
   let descriptorInfo = '';
+  
   criteres.forEach(c => {
     const desc = descripteurs[c];
     if (desc) {
+      // Extract sub-criteria
+      const subs = getAllSubCriteria(desc);
+      allSubCriteria[c] = subs;
+      
       descriptorInfo += `\nCritère ${c} (${desc.titre}):\n`;
+      descriptorInfo += `Sous-critères:\n`;
+      Object.entries(subs).forEach(([roman, text]) => {
+        descriptorInfo += `  ${roman}. ${text}\n`;
+      });
+      descriptorInfo += `\nNiveaux de maîtrise:\n`;
       Object.entries(desc.niveaux || {}).forEach(([niveau, texte]) => {
-        descriptorInfo += `  Niveau ${niveau}: ${texte}\n`;
+        if (niveau !== '0') {
+          descriptorInfo += `  Niveau ${niveau}: ${texte.substring(0, 100)}...\n`;
+        }
       });
     }
   });
@@ -191,22 +246,37 @@ Niveau: ${classe}
 Unité: ${uniteTitle}
 Énoncé de recherche: ${enonce}
 
-Critères d'évaluation:
+Critères d'évaluation avec sous-critères:
 ${descriptorInfo}
 
-Pour CHAQUE critère (${criteres.join(', ')}), génère 3-4 exercices/tâches pratiques qui permettent d'évaluer les compétences décrites dans les descripteurs.
+IMPORTANT: Pour CHAQUE sous-critère (i, ii, iii, iv) de CHAQUE critère, génère UN exercice spécifique qui évalue cette compétence particulière.
+
+Par exemple, pour le Critère A avec sous-critères i, ii, iii, iv, tu dois générer:
+- Un exercice qui évalue spécifiquement le sous-critère i
+- Un exercice qui évalue spécifiquement le sous-critère ii
+- Un exercice qui évalue spécifiquement le sous-critère iii
+- Un exercice qui évalue spécifiquement le sous-critère iv
 
 Les exercices doivent:
-- Être concrets et réalisables
+- Être concrets et réalisables en classe
 - Correspondre au niveau ${classe}
-- Permettre d'évaluer les différents niveaux de maîtrise
-- Être variés (analyse, production, réflexion, etc.)
+- Cibler précisément la compétence du sous-critère
+- Permettre d'évaluer les différents niveaux de maîtrise (1-2, 3-4, 5-6, 7-8)
+- Être clairs et sans ambiguïté
 
-Réponds en JSON strict:
+Réponds en JSON strict avec cette structure:
 {
   "exercices": {
-    "A": ["exercice 1 pour A", "exercice 2 pour A", ...],
-    "B": ["exercice 1 pour B", "exercice 2 pour B", ...],
+    "A": {
+      "i": "Exercice pour évaluer le sous-critère A.i",
+      "ii": "Exercice pour évaluer le sous-critère A.ii",
+      "iii": "Exercice pour évaluer le sous-critère A.iii",
+      "iv": "Exercice pour évaluer le sous-critère A.iv"
+    },
+    "B": {
+      "i": "Exercice pour évaluer le sous-critère B.i",
+      ...
+    },
     ...
   }
 }`;
@@ -216,6 +286,7 @@ Réponds en JSON strict:
   for (const modelConfig of MODELS_TO_TRY) {
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
+        console.log(`[INFO] Trying ${modelConfig.name} (attempt ${attempt}/2)...`);
         const model = genAI.getGenerativeModel({ model: modelConfig.name });
         const res = await model.generateContent(prompt);
         let text = res.response.text();
@@ -226,13 +297,19 @@ Réponds en JSON strict:
         }
         
         const json = JSON.parse(text);
-        console.log(`[SUCCESS] Generated exercises with ${modelConfig.name}`);
-        return json.exercices || {};
+        console.log(`[SUCCESS] ✅ Generated exercises with ${modelConfig.name}`);
+        console.log(`[INFO] Generated ${Object.keys(json.exercices || {}).length} criterion groups`);
+        
+        return {
+          exercices: json.exercices || {},
+          subCriteria: allSubCriteria
+        };
       } catch (error) {
         lastError = error;
-        console.error(`[ERROR] Exercise generation attempt ${attempt} failed:`, error.message);
+        console.error(`[ERROR] ❌ Exercise generation attempt ${attempt} failed:`, error.message);
         
         if (attempt < 2 && (error.message.includes('503') || error.message.includes('overloaded'))) {
+          console.log(`[INFO] ⏳ Retrying after delay...`);
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
@@ -241,17 +318,32 @@ Réponds en JSON strict:
     }
   }
   
-  console.warn('[WARN] Exercise generation failed, using default placeholders');
-  // Return default structure if generation fails
+  console.warn('[WARN] ⚠️  Exercise generation failed, using default placeholders');
+  
+  // Return default structure with sub-criteria if generation fails
   const defaultExercices = {};
   criteres.forEach(c => {
-    defaultExercices[c] = [
-      `Exercice 1 pour le critère ${c} (à compléter)`,
-      `Exercice 2 pour le critère ${c} (à compléter)`,
-      `Exercice 3 pour le critère ${c} (à compléter)`
-    ];
+    const subs = allSubCriteria[c] || {};
+    defaultExercices[c] = {};
+    
+    if (Object.keys(subs).length > 0) {
+      Object.keys(subs).forEach((roman, idx) => {
+        defaultExercices[c][roman] = `Exercice ${c}.${roman} : Évaluer la compétence "${subs[roman].substring(0, 50)}..." (à compléter par l'enseignant)`;
+      });
+    } else {
+      // Fallback if no sub-criteria found
+      defaultExercices[c] = {
+        i: `Exercice ${c}.i (à compléter)`,
+        ii: `Exercice ${c}.ii (à compléter)`,
+        iii: `Exercice ${c}.iii (à compléter)`
+      };
+    }
   });
-  return defaultExercices;
+  
+  return {
+    exercices: defaultExercices,
+    subCriteria: allSubCriteria
+  };
 }
 
 function buildPlanDocx({ enseignant, matiere, classe, unite }) {
@@ -583,6 +675,190 @@ export default async function handler(req, res) {
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       // Packer.toBuffer() already returns a Buffer, don't wrap it again
       return res.end(buffer);
+    }
+
+    // NEW: Generate Plan using template
+    if (req.method === "POST" && pathname === "/api/generate-plan-template") {
+      const body = await readBody(req);
+      const { enseignant, matiere, classe, unite } = body || {};
+      
+      try {
+        // Download template
+        const PLAN_TEMPLATE_URL = "https://docs.google.com/document/d/144_yUOythmkjTsP9PA4k5YLOpRFyV7Zv/export?format=docx";
+        const response = await fetch(PLAN_TEMPLATE_URL);
+        const templateBuffer = Buffer.from(await response.arrayBuffer());
+        
+        // Fill template with docxtemplater
+        const zip = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zip, {
+          paragraphLoop: true,
+          linebreaks: true,
+          nullGetter: (part) => `[${part.value}]`
+        });
+        
+        // Prepare data
+        const templateData = {
+          enseignant: enseignant || 'Nom de l\'enseignant',
+          groupe_matiere: matiere || '',
+          titre_unite: unite?.titre || unite?.titre_unite || '',
+          annee_pei: classe || '',
+          duree: unite?.duree || '',
+          concept_cle: unite?.concept_cle || '',
+          concepts_connexes: Array.isArray(unite?.concepts_connexes) ? unite.concepts_connexes.join(', ') : (unite?.concepts_connexes || ''),
+          contexte_mondial: unite?.contexte_mondial || '',
+          enonce_de_recherche: unite?.enonce_recherche || '',
+          questions_factuelles: Array.isArray(unite?.questions_factuelles) ? unite.questions_factuelles.join('\n') : (unite?.questions_factuelles || ''),
+          questions_conceptuelles: Array.isArray(unite?.questions_conceptuelles) ? unite.questions_conceptuelles.join('\n') : (unite?.questions_conceptuelles || ''),
+          questions_debat: Array.isArray(unite?.questions_debat) ? unite.questions_debat.join('\n') : (unite?.questions_debat || ''),
+          objectifs_specifiques: Array.isArray(unite?.objectifs_specifiques) ? unite.objectifs_specifiques.join('\n') : (unite?.objectifs_specifiques || ''),
+          evaluation_sommative: unite?.evaluation_sommative || 'Évaluation à définir selon les critères d\'évaluation de la matière.',
+          approches_apprentissage: unite?.approches_apprentissage || 'Compétences développées : pensée critique, communication, autogestion, recherche, compétences sociales.',
+          contenu: unite?.contenu || unite?.processus_apprentissage || 'Contenu à développer en fonction des chapitres et des objectifs spécifiques.',
+          processus_apprentissage: unite?.processus_apprentissage || unite?.contenu || '',
+          ressources: unite?.ressources || 'Manuels scolaires, ressources numériques, matériel de laboratoire (si applicable).',
+          differenciation: unite?.differenciation || 'Adaptation selon les besoins : soutien supplémentaire, extensions pour élèves avancés, supports visuels/audio.',
+          evaluation_formative: unite?.evaluation_formative || 'Observations continues, questionnements, quizz formatifs, rétroaction régulière.',
+          reflexion_avant: unite?.reflexion_avant || 'Préparation des ressources, planification des activités, anticipation des difficultés.',
+          reflexion_pendant: unite?.reflexion_pendant || 'Ajustements selon la progression, gestion du temps, adaptation aux besoins.',
+          reflexion_apres: unite?.reflexion_apres || 'Analyse des résultats, points à améliorer, ajustements pour les prochaines unités.'
+        };
+        
+        doc.setData(templateData);
+        doc.render();
+        
+        const buffer = doc.getZip().generate({ 
+          type: 'nodebuffer',
+          compression: 'DEFLATE'
+        });
+        
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        const safeName = sanitizeFilename(matiere || 'Unite');
+        const filename = `Plan_Unite_${safeName}_${Date.now()}.docx`;
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.end(buffer);
+      } catch (error) {
+        console.error('[ERROR] Template generation failed:', error);
+        return json(res, 500, { error: 'Template generation failed: ' + error.message });
+      }
+    }
+
+    // NEW: Generate Eval using template with AI exercises
+    if (req.method === "POST" && pathname === "/api/generate-eval-template") {
+      const body = await readBody(req);
+      const { matiere, classe, unite, critere = "A" } = body || {};
+      
+      try {
+        const classeKey = parseClasseToKey(classe, matiere);
+        
+        // Get criterion data
+        const matiereKey = (matiere || "").toLowerCase().replace(/\s+/g, '_');
+        const pool = DESCRIPTEURS_COMPLETS[matiereKey];
+        
+        if (!pool) {
+          return json(res, 400, { error: `Matière non trouvée: ${matiere}` });
+        }
+        
+        // Determine PEI level
+        let peiLevel = 'pei1';
+        if (classeKey.includes('1') || classeKey.includes('2')) peiLevel = 'pei1';
+        else if (classeKey.includes('3') || classeKey.includes('4')) peiLevel = 'pei3';
+        else if (classeKey.includes('5')) peiLevel = 'pei5';
+        
+        let yearData = pool[peiLevel];
+        if (typeof yearData === 'string' && yearData.startsWith('same_as_')) {
+          const refLevel = yearData.split('_')[2];
+          yearData = pool[refLevel];
+        }
+        
+        const criterionData = yearData?.[critere];
+        if (!criterionData) {
+          return json(res, 400, { error: `Critère ${critere} non trouvé pour ${matiere} ${classeKey}` });
+        }
+        
+        // Extract sub-criteria
+        const subCriteria = getAllSubCriteria(criterionData);
+        
+        // Generate exercises for each sub-criterion
+        console.log(`[INFO] 🎯 Generating exercises for criterion ${critere} with sub-criteria: ${Object.keys(subCriteria).join(', ')}`);
+        
+        const exerciseResult = await generateExercicesWithGemini({
+          matiere,
+          classe: classeKey,
+          uniteTitle: unite?.titre || unite?.titre_unite || '',
+          enonce: unite?.enonce_recherche || '',
+          criteres: [critere],
+          descripteurs: { [critere]: criterionData }
+        });
+        
+        const exercicesGenerated = exerciseResult.exercices[critere] || {};
+        
+        // Format exercises with sub-criteria
+        let exercisesText = `Exercices d'évaluation pour le Critère ${critere}\n\n`;
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+          exercisesText += `${critere}.${roman}) ${description}\n`;
+          const exercise = exercicesGenerated[roman];
+          if (exercise) {
+            exercisesText += `Exercice: ${exercise}\n\n`;
+          } else {
+            exercisesText += `Exercice: [À compléter]\n\n`;
+          }
+        });
+        
+        // Format objectifs_specifiques with full sub-criteria
+        let objectifs_specifiques_text = `Critère ${critere} : ${criterionData.titre}\n\n`;
+        objectifs_specifiques_text += 'Sous-critères évalués:\n';
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+          objectifs_specifiques_text += `${roman}. ${description}\n`;
+        });
+        
+        // Download template
+        const EVAL_TEMPLATE_URL = "https://docs.google.com/document/d/1R4wsPh9ClGrUJR46mISScRZk7DBVHBaC/export?format=docx";
+        const response = await fetch(EVAL_TEMPLATE_URL);
+        const templateBuffer = Buffer.from(await response.arrayBuffer());
+        
+        // Fill template with docxtemplater
+        const zip = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zip, {
+          paragraphLoop: true,
+          linebreaks: true,
+          nullGetter: (part) => `[${part.value}]`
+        });
+        
+        // Prepare data
+        const templateData = {
+          annee_pei: classe || '',
+          groupe_matiere: matiere || '',
+          titre_unite: unite?.titre || unite?.titre_unite || '',
+          objectifs_specifiques: objectifs_specifiques_text,
+          enonce_de_recherche: unite?.enonce_recherche || '',
+          lettre_critere: critere,
+          nom_objectif_specifique: criterionData.titre,
+          Exercices: exercisesText,
+          descripteur_1_2: criterionData.niveaux['1-2'] || '',
+          descripteur_3_4: criterionData.niveaux['3-4'] || '',
+          descripteur_5_6: criterionData.niveaux['5-6'] || '',
+          descripteur_7_8: criterionData.niveaux['7-8'] || ''
+        };
+        
+        doc.setData(templateData);
+        doc.render();
+        
+        const buffer = doc.getZip().generate({ 
+          type: 'nodebuffer',
+          compression: 'DEFLATE'
+        });
+        
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        const safeName = sanitizeFilename(matiere || 'Evaluation');
+        const filename = `Evaluation_${safeName}_Critere_${critere}_${Date.now()}.docx`;
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.end(buffer);
+      } catch (error) {
+        console.error('[ERROR] Eval template generation failed:', error);
+        return json(res, 500, { error: 'Eval template generation failed: ' + error.message });
+      }
     }
 
     // Fallback
