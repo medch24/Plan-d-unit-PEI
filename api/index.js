@@ -176,7 +176,6 @@ function buildPlanDocx({ enseignant, matiere, classe, unite }) {
 
 function buildEvalDocx({ elevePlaceholders = true, matiere, classeKey, criteres = ["D"], uniteTitle = "", enonce = "" }) {
   // Compose a simple one-page evaluation sheet based on descriptors
-  const doc = new Document();
   const children = [];
   children.push(new Paragraph({ text: `Évaluation critériée – ${matiere}`, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }));
   if (uniteTitle) children.push(new Paragraph({ text: `Unité: ${uniteTitle}`, spacing: { after: 200 } }));
@@ -221,6 +220,14 @@ function buildEvalDocx({ elevePlaceholders = true, matiere, classeKey, criteres 
       children.push(new Paragraph({ text: "3. ............................................................." }));
       children.push(new Paragraph({ text: "Espace pour insérer une image/ressource: [collez ici]" }));
     }
+  });
+
+  // Create document with proper section configuration
+  const doc = new Document({
+    sections: [{
+      properties: {},
+      children: children
+    }]
   });
 
   return Packer.toBuffer(doc);
@@ -292,7 +299,8 @@ export default async function handler(req, res) {
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       const filename = `Plan_Unite_${(matiere||'').replace(/\s+/g,'_')}_${Date.now()}.docx`;
       res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-      return res.end(Buffer.from(buffer));
+      // Packer.toBuffer() already returns a Buffer, don't wrap it again
+      return res.end(buffer);
     }
 
     if (req.method === "POST" && pathname === "/api/generate-eval") {
@@ -304,7 +312,8 @@ export default async function handler(req, res) {
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       const filename = `Evaluation_${(matiere||'').replace(/\s+/g,'_')}_${Date.now()}.docx`;
       res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
-      return res.end(Buffer.from(buffer));
+      // Packer.toBuffer() already returns a Buffer, don't wrap it again
+      return res.end(buffer);
     }
 
     // Fallback
