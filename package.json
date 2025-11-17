@@ -1,0 +1,18 @@
+{
+  "name": "plan-pei-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vercel dev",
+    "build": "echo 'Vercel builds serverless automatically'",
+    "start": "node api/index.js"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "docx": "^8.5.0",
+    "mongodb": "^6.9.0",
+    "node-fetch": "^3.3.2",
+    "jszip": "^3.10.1"
+  }
+}
