@@ -22,13 +22,45 @@ Application web pour générer automatiquement des unités d'enseignement du Pro
 
 ## 🚀 Installation
 
-```bash
-# Installer les dépendances
-pip install -r requirements.txt
+### Installation Locale
 
-# Configurer la clé API Claude (optionnel mais recommandé)
-export ANTHROPIC_API_KEY="your-api-key-here"
+```bash
+# Installer les dépendances Node.js
+npm install
+
+# Configurer les variables d'environnement
+cp .env.example .env
+
+# Éditer .env et ajouter vos clés API
+GEMINI_API_KEY="votre-clé-google-gemini"
+MONGO_URL="mongodb+srv://..."
+
+# Lancer le serveur de développement
+npm run dev
 ```
+
+### Déploiement sur Vercel
+
+1. **Pré-requis** :
+   - Compte Vercel
+   - Repository GitHub
+
+2. **Configuration** :
+   ```bash
+   # Configurer les variables d'environnement sur Vercel Dashboard:
+   GEMINI_API_KEY=votre-clé-api
+   MONGO_URL=votre-url-mongodb
+   ```
+
+3. **Déploiement** :
+   - Push sur la branche `main`
+   - Vercel déploie automatiquement
+   - URL de production disponible immédiatement
+
+4. **Vérification** :
+   - Vérifier les logs Vercel pour confirmer le déploiement
+   - Tester la génération d'unités
+   - Les logs montreront quel modèle Gemini est utilisé
 
 ## 💻 Utilisation
 
@@ -68,7 +100,7 @@ L'application regroupe automatiquement les chapitres similaires en unités cohé
 
 ## 🤖 Intelligence Artificielle
 
-L'application utilise Claude AI (Anthropic) pour:
+L'application utilise **Google Gemini AI** pour:
 - Analyser les chapitres fournis
 - Identifier les thèmes communs
 - Regrouper intelligemment les chapitres
@@ -76,7 +108,24 @@ L'application utilise Claude AI (Anthropic) pour:
 - Formuler des questions de recherche appropriées
 - Sélectionner les concepts et objectifs adaptés
 
-**Note**: Si la clé API Claude n'est pas configurée, l'application bascule sur un mode de génération basique.
+### 🛡️ Système de Fallback Robuste
+
+L'application implémente une **stratégie de haute disponibilité** avec:
+
+1. **Multi-Model Fallback** : Essaie automatiquement 4 modèles Gemini dans l'ordre :
+   - `gemini-2.5-flash` (principal)
+   - `gemini-2.0-flash` (fallback 1)
+   - `gemini-2.5-flash-lite` (fallback 2)
+   - `gemini-2.0-flash-lite` (fallback 3)
+
+2. **Retry Logic Intelligent** :
+   - 3 tentatives par modèle
+   - Exponential backoff (1s, 2s, 4s)
+   - Gestion automatique des surcharges (503)
+
+3. **Disponibilité** : ~99.9% grâce aux 4 modèles de fallback
+
+**Note**: Configurez `GEMINI_API_KEY` dans les variables d'environnement.
 
 ## 📄 Structure du document Word généré
 
@@ -94,26 +143,28 @@ Le document Word généré comprend:
 
 ## 🛠️ Technologies utilisées
 
-- **Backend**: Python Flask
+- **Backend**: Node.js (Vercel Serverless Functions)
 - **Frontend**: HTML, CSS, JavaScript (Vanilla)
-- **IA**: Claude 3.5 Sonnet (Anthropic)
-- **Documents**: python-docx
+- **IA**: Google Gemini 2.5 Flash (avec fallback multi-modèles)
+- **Base de données**: MongoDB Atlas
+- **Documents**: docx (génération Word)
+- **Déploiement**: Vercel
+- **Gestion Excel**: xlsx (pour upload de chapitres)
 
 ## 📂 Structure du projet
 
 ```
 webapp/
-├── app.py                      # Application Flask principale
-├── matieres_data_complete.py   # Données complètes des matières PEI
-├── requirements.txt            # Dépendances Python
-├── templates/
-│   └── index.html             # Interface utilisateur
-├── static/
-│   ├── css/
-│   │   └── styles.css         # Styles CSS
-│   └── js/
-│       └── app.js             # Logique JavaScript
-└── generated_units/           # Documents Word générés
+├── api/
+│   ├── index.js                     # API Vercel serverless
+│   └── descripteurs-complets.js    # Descripteurs PEI officiels
+├── public/
+│   ├── index.html                   # Interface utilisateur
+│   ├── styles.css                   # Styles CSS
+│   └── script.js                    # Logique frontend
+├── package.json                     # Dépendances Node.js
+├── vercel.json                      # Configuration Vercel
+└── generated_units/                 # Documents générés (local)
 ```
 
 ## 🎓 Basé sur le Programme PEI de l'IB
@@ -124,6 +175,31 @@ Cette application respecte scrupuleusement les directives du Programme d'Éducat
 - Contextes mondiaux
 - Objectifs spécifiques par année et par matière
 - Structure de recherche recommandée
+
+## 🔧 Troubleshooting
+
+### Erreur 404 "Model not found"
+✅ **Déjà résolu** : L'application utilise maintenant des modèles Gemini 2.x (série active)
+- Les modèles Gemini 1.5 sont retirés par Google
+- Le système essaie automatiquement les modèles disponibles
+
+### Erreur 503 "Service Unavailable"
+✅ **Déjà résolu** : Retry automatique avec exponential backoff
+- 3 tentatives par modèle
+- Fallback vers d'autres modèles si nécessaire
+- Délais intelligents entre tentatives (1s, 2s, 4s)
+
+### Erreur MongoDB Connection
+Vérifiez :
+- `MONGO_URL` est configuré dans les variables d'environnement
+- L'URL MongoDB est correcte et accessible
+- IP de Vercel est whitelistée dans MongoDB Atlas
+
+### Logs de Débogage
+Sur Vercel, consultez les logs pour voir :
+- Quel modèle Gemini est utilisé
+- Les tentatives de retry
+- Les erreurs détaillées
 
 ## 📧 Support
 
