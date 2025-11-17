@@ -21,6 +21,8 @@ const __dirname = path.dirname(__filename);
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URI || "";
+const PLAN_TEMPLATE_URL = process.env.PLAN_TEMPLATE_URL || "";
+const EVAL_TEMPLATE_URL = process.env.EVAL_TEMPLATE_URL || "";
 
 // Utility: build a single Mongo client reused across invocations
 let cachedDb = null;
@@ -640,15 +642,86 @@ export default async function handler(req, res) {
     if (req.method === "POST" && pathname === "/api/generate-plan-docx") {
       const body = await readBody(req);
       const { enseignant, matiere, classe, unite } = body || {};
-      const buffer = await buildPlanDocx({ enseignant, matiere, classe, unite });
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      // Sanitize filename to remove accents and special characters (HTTP header requirement)
-      const safeName = sanitizeFilename(matiere || 'Unite');
-      const filename = `Plan_Unite_${safeName}_${Date.now()}.docx`;
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      // Packer.toBuffer() already returns a Buffer, don't wrap it again
-      return res.end(buffer);
+      
+      try {
+        // Download template from configured URL
+        const templateUrl = PLAN_TEMPLATE_URL || path.join(__dirname, '../templates/Plan_CLEAN_TEMPLATE.docx');
+        
+        let templateBuffer;
+        if (templateUrl.startsWith('http://') || templateUrl.startsWith('https://')) {
+          const response = await fetch(templateUrl);
+          if (!response.ok) throw new Error(`Failed to fetch template: ${response.statusText}`);
+          templateBuffer = Buffer.from(await response.arrayBuffer());
+        } else {
+          templateBuffer = fs.readFileSync(templateUrl);
+        }
+        
+        // Fill template with docxtemplater
+        const zip = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zip, {
+          paragraphLoop: true,
+          linebreaks: true,
+          nullGetter: (part) => {
+            console.warn(`⚠️  Missing placeholder in Plan: ${part.value}`);
+            return '';
+          }
+        });
+        
+        // Prepare data matching template placeholders
+        const templateData = {
+          enseignant: enseignant || '',
+          titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+          groupe_matiere: matiere || '',
+          annee_pei: classe || '',
+          duree: unite?.duree || '',
+          concept_cle: unite?.conceptCle || unite?.concept_cle || '',
+          concepts_connexes: Array.isArray(unite?.conceptsConnexes || unite?.concepts_connexes) 
+            ? (unite?.conceptsConnexes || unite?.concepts_connexes).join(', ') 
+            : (unite?.conceptsConnexes || unite?.concepts_connexes || ''),
+          contexte_mondial: unite?.contexteMondial || unite?.contexte_mondial || '',
+          enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+          questions_factuelles: Array.isArray(unite?.questions?.factuelles || unite?.questions_factuelles)
+            ? (unite?.questions?.factuelles || unite?.questions_factuelles).map(q => `• ${q}`).join('\n')
+            : '',
+          questions_conceptuelles: Array.isArray(unite?.questions?.conceptuelles || unite?.questions_conceptuelles)
+            ? (unite?.questions?.conceptuelles || unite?.questions_conceptuelles).map(q => `• ${q}`).join('\n')
+            : '',
+          questions_debat: Array.isArray(unite?.questions?.debat || unite?.questions_debat)
+            ? (unite?.questions?.debat || unite?.questions_debat).map(q => `• ${q}`).join('\n')
+            : '',
+          objectifs_specifiques: Array.isArray(unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
+            ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques).map(o => `• ${o}`).join('\n')
+            : '',
+          evaluation_sommative: unite?.evaluation_sommative || 'Évaluation à définir selon les critères d\'évaluation de la matière.',
+          approches_apprentissage: unite?.approches_apprentissage || 'Compétences développées : pensée critique, communication, autogestion, recherche, compétences sociales.',
+          contenu: unite?.contenu || unite?.processus_apprentissage || 'Contenu à développer en fonction des chapitres et des objectifs spécifiques.',
+          ressources: unite?.ressources || 'Manuels scolaires, ressources numériques, matériel de laboratoire (si applicable).',
+          differenciation: unite?.differenciation || 'Adaptation selon les besoins : soutien supplémentaire, extensions pour élèves avancés, supports visuels/audio.',
+          evaluation_formative: unite?.evaluation_formative || 'Observations continues, questionnements, quizz formatifs, rétroaction régulière.',
+          reflexion_avant: unite?.reflexion_avant || 'Préparation des ressources, planification des activités, anticipation des difficultés.',
+          reflexion_pendant: unite?.reflexion_pendant || 'Ajustements selon la progression, gestion du temps, adaptation aux besoins.',
+          reflexion_apres: unite?.reflexion_apres || 'Analyse des résultats, points à améliorer, ajustements pour les prochaines unités.'
+        };
+        
+        doc.setData(templateData);
+        doc.render();
+        
+        const buffer = doc.getZip().generate({ 
+          type: 'nodebuffer',
+          compression: 'DEFLATE'
+        });
+        
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        const safeName = sanitizeFilename(matiere || 'Unite');
+        const filename = `Plan_Unite_${safeName}_${Date.now()}.docx`;
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.end(buffer);
+        
+      } catch (error) {
+        console.error('[ERROR] Plan template generation failed:', error);
+        return json(res, 500, { error: 'Plan generation failed: ' + error.message });
+      }
     }
 
     if (req.method === "POST" && pathname === "/api/generate-eval") {
@@ -656,25 +729,128 @@ export default async function handler(req, res) {
       const { matiere, classe, unite, criteres = ["D"], telecharger = true } = body || {};
       const classeKey = parseClasseToKey(classe, matiere);
       
-      // Build comprehensive evaluation document with AI-generated exercises
-      const buffer = await buildEvalDocx({ 
-        matiere, 
-        classeKey, 
-        criteres, 
-        uniteTitle: unite?.titre_unite || unite?.titre || "", 
-        enonce: unite?.enonce_recherche || "",
-        objectifs_specifiques: unite?.objectifs_specifiques || [],
-        unite: unite // Pass full unite object for exercise generation
-      });
-      
-      res.statusCode = 200;
-      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      // Sanitize filename to remove accents and special characters (HTTP header requirement)
-      const safeName = sanitizeFilename(matiere || 'Evaluation');
-      const filename = `Evaluation_${safeName}_${Date.now()}.docx`;
-      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
-      // Packer.toBuffer() already returns a Buffer, don't wrap it again
-      return res.end(buffer);
+      try {
+        // Use first criterion if multiple provided
+        const critere = Array.isArray(criteres) ? criteres[0] : criteres;
+        
+        // Get criterion data
+        const matiereKey = (matiere || "").toLowerCase().replace(/\s+/g, '_');
+        const pool = DESCRIPTEURS_COMPLETS[matiereKey];
+        
+        if (!pool) {
+          return json(res, 400, { error: `Matière non trouvée: ${matiere}` });
+        }
+        
+        // Determine PEI level
+        let peiLevel = 'pei1';
+        if (classeKey.includes('1') || classeKey.includes('2')) peiLevel = 'pei1';
+        else if (classeKey.includes('3') || classeKey.includes('4')) peiLevel = 'pei3';
+        else if (classeKey.includes('5')) peiLevel = 'pei5';
+        
+        let yearData = pool[peiLevel];
+        if (typeof yearData === 'string' && yearData.startsWith('same_as_')) {
+          const refLevel = yearData.split('_')[2];
+          yearData = pool[refLevel];
+        }
+        
+        const criterionData = yearData?.[critere];
+        if (!criterionData) {
+          return json(res, 400, { error: `Critère ${critere} non trouvé pour ${matiere} ${classeKey}` });
+        }
+        
+        // Extract sub-criteria
+        const subCriteria = getAllSubCriteria(criterionData);
+        
+        // Generate exercises for each sub-criterion
+        console.log(`[INFO] 🎯 Generating exercises for criterion ${critere}`);
+        
+        const exerciseResult = await generateExercicesWithGemini({
+          matiere,
+          classe: classeKey,
+          uniteTitle: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+          enonce: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+          criteres: [critere],
+          descripteurs: { [critere]: criterionData }
+        });
+        
+        const exercicesGenerated = exerciseResult.exercices[critere] || {};
+        
+        // Format exercises with sub-criteria
+        let exercisesText = '';
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+          exercisesText += `\n${critere}.${roman}) ${description}\n`;
+          const exercise = exercicesGenerated[roman];
+          if (exercise) {
+            exercisesText += `Exercice: ${exercise}\n`;
+          } else {
+            exercisesText += `Exercice: [À compléter par l'enseignant]\n`;
+          }
+        });
+        
+        // Format objectifs_specifiques with full sub-criteria
+        let objectifs_specifiques_text = 'Sous-critères évalués:\n';
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+          objectifs_specifiques_text += `${roman}. ${description}\n`;
+        });
+        
+        // Download template
+        const templateUrl = EVAL_TEMPLATE_URL || path.join(__dirname, '../templates/Eval_CLEAN_TEMPLATE.docx');
+        
+        let templateBuffer;
+        if (templateUrl.startsWith('http://') || templateUrl.startsWith('https://')) {
+          const response = await fetch(templateUrl);
+          if (!response.ok) throw new Error(`Failed to fetch template: ${response.statusText}`);
+          templateBuffer = Buffer.from(await response.arrayBuffer());
+        } else {
+          templateBuffer = fs.readFileSync(templateUrl);
+        }
+        
+        // Fill template with docxtemplater
+        const zip = new PizZip(templateBuffer);
+        const doc = new Docxtemplater(zip, {
+          paragraphLoop: true,
+          linebreaks: true,
+          nullGetter: (part) => {
+            console.warn(`⚠️  Missing placeholder in Eval: ${part.value}`);
+            return '';
+          }
+        });
+        
+        // Prepare data
+        const templateData = {
+          annee_pei: classe || '',
+          groupe_matiere: matiere || '',
+          titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+          objectifs_specifiques: objectifs_specifiques_text,
+          enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+          lettre_critere: critere,
+          nom_objectif_specifique: criterionData.titre,
+          exercices: exercisesText,
+          descripteur_1_2: criterionData.niveaux['1-2'] || '',
+          descripteur_3_4: criterionData.niveaux['3-4'] || '',
+          descripteur_5_6: criterionData.niveaux['5-6'] || '',
+          descripteur_7_8: criterionData.niveaux['7-8'] || ''
+        };
+        
+        doc.setData(templateData);
+        doc.render();
+        
+        const buffer = doc.getZip().generate({ 
+          type: 'nodebuffer',
+          compression: 'DEFLATE'
+        });
+        
+        res.statusCode = 200;
+        res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+        const safeName = sanitizeFilename(matiere || 'Evaluation');
+        const filename = `Evaluation_${safeName}_Critere_${critere}_${Date.now()}.docx`;
+        res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+        return res.end(buffer);
+        
+      } catch (error) {
+        console.error('[ERROR] Eval template generation failed:', error);
+        return json(res, 500, { error: 'Eval generation failed: ' + error.message });
+      }
     }
 
     // NEW: Generate Plan using template
