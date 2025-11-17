@@ -7,8 +7,6 @@
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { MongoClient, ObjectId } from "mongodb";
-import fetch from "node-fetch";
-import JSZip from "jszip"; // only if needed later
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, Table, TableRow, TableCell, WidthType, AlignmentType } from "docx";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
@@ -330,6 +328,17 @@ export default async function handler(req, res) {
       await db.collection("sessions").insertOne({ enseignant, matiere, classe: classeKey, essai, chapitres, unites, createdAt: new Date() });
 
       return json(res, 200, { unites, essai });
+    }
+
+    if (req.method === "POST" && pathname === "/api/generate-plan-docx") {
+      const body = await readBody(req);
+      const { enseignant, matiere, classe, unite } = body || {};
+      const buffer = await buildPlanDocx({ enseignant, matiere, classe, unite });
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+      const filename = `Plan_Unite_${(matiere||'').replace(/\s+/g,'_')}_${Date.now()}.docx`;
+      res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+      return res.end(Buffer.from(buffer));
     }
 
     if (req.method === "POST" && pathname === "/api/generate-eval") {

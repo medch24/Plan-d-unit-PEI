@@ -102,7 +102,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const q = unit.questions || {}; const qsF=(q.factuelles||unit.questions_factuelles||[]); const qsC=(q.conceptuelles||unit.questions_conceptuelles||[]); const qsD=(q.debat||unit.questions_debat||[]);
             html += `
                 <div class="unit-plan">
-                    <div style="padding:10px; text-align:right">
+                    <div style="padding:10px; text-align:right; display:flex; gap:8px; justify-content:flex-end">
+                      <button class="btn-secondary" data-plan="${index}">Exporter le plan (Word)</button>
                       <button class="btn-secondary" data-eval="${index}">Générer l'évaluation critériée</button>
                     </div>
                     <table>
@@ -132,6 +133,17 @@ document.addEventListener('DOMContentLoaded', () => {
         
         resultsDiv.innerHTML = html;
         // Bind eval buttons
+        // Export Plan buttons
+        resultsDiv.querySelectorAll('[data-plan]').forEach(btn=>{
+          btn.addEventListener('click', async ()=>{
+            const idx = parseInt(btn.getAttribute('data-plan'),10);
+            const unite = unites[idx];
+            const resp = await fetch('/api/generate-plan-docx', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enseignant: ctx.enseignant, matiere: ctx.matiere, classe: ctx.classe, unite }) });
+            const blob = await resp.blob();
+            const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Plan_Unite_${Date.now()}.docx`; a.click();
+          });
+        });
+        // Eval buttons
         resultsDiv.querySelectorAll('[data-eval]').forEach(btn=>{
           btn.addEventListener('click', async ()=>{
             const idx = parseInt(btn.getAttribute('data-eval'),10);
