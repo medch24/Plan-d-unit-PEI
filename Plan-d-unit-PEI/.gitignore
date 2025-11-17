@@ -1,0 +1,9 @@
+node_modules/
+.generated/
+/tmp/
+.DS_Store
+.env
+*.pyc
+__pycache__/
+_archive/
+generated_units/

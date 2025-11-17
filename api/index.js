@@ -148,6 +148,112 @@ async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
   throw new Error(`Erreur lors de la génération avec Gemini après avoir essayé tous les modèles: ${lastError?.message || 'Unknown error'}`);
 }
 
+/**
+ * Generate exercises for evaluation based on specific criteria
+ * @param {string} matiere - Subject name
+ * @param {string} classe - Class level (e.g., "PEI 1")
+ * @param {string} uniteTitle - Unit title
+ * @param {string} enonce - Research statement
+ * @param {Array<string>} criteres - Assessment criteria (e.g., ["A", "B", "C"])
+ * @param {object} descripteurs - Descriptors for the criteria
+ * @returns {Promise<object>} - Generated exercises organized by criteria
+ */
+async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce, criteres, descripteurs }) {
+  if (!GEMINI_API_KEY) {
+    console.error('[ERROR] GEMINI_API_KEY is missing for exercise generation');
+    return {}; // Return empty if no API key
+  }
+  
+  console.log('[INFO] Generating exercises with Gemini');
+  const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+  
+  const MODELS_TO_TRY = [
+    { name: "gemini-2.5-flash", description: "Gemini 2.5 Flash (primary)" },
+    { name: "gemini-2.0-flash", description: "Gemini 2.0 Flash (fallback 1)" }
+  ];
+  
+  // Build detailed prompt with descriptors
+  let descriptorInfo = '';
+  criteres.forEach(c => {
+    const desc = descripteurs[c];
+    if (desc) {
+      descriptorInfo += `\nCritère ${c} (${desc.titre}):\n`;
+      Object.entries(desc.niveaux || {}).forEach(([niveau, texte]) => {
+        descriptorInfo += `  Niveau ${niveau}: ${texte}\n`;
+      });
+    }
+  });
+  
+  const prompt = `Tu es un expert en évaluation PEI IB. Génère des exercices pratiques pour évaluer les élèves.
+
+Matière: ${matiere}
+Niveau: ${classe}
+Unité: ${uniteTitle}
+Énoncé de recherche: ${enonce}
+
+Critères d'évaluation:
+${descriptorInfo}
+
+Pour CHAQUE critère (${criteres.join(', ')}), génère 3-4 exercices/tâches pratiques qui permettent d'évaluer les compétences décrites dans les descripteurs.
+
+Les exercices doivent:
+- Être concrets et réalisables
+- Correspondre au niveau ${classe}
+- Permettre d'évaluer les différents niveaux de maîtrise
+- Être variés (analyse, production, réflexion, etc.)
+
+Réponds en JSON strict:
+{
+  "exercices": {
+    "A": ["exercice 1 pour A", "exercice 2 pour A", ...],
+    "B": ["exercice 1 pour B", "exercice 2 pour B", ...],
+    ...
+  }
+}`;
+
+  let lastError = null;
+  
+  for (const modelConfig of MODELS_TO_TRY) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const model = genAI.getGenerativeModel({ model: modelConfig.name });
+        const res = await model.generateContent(prompt);
+        let text = res.response.text();
+        
+        if (text.includes("```")) {
+          const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
+          if (m) text = m[1];
+        }
+        
+        const json = JSON.parse(text);
+        console.log(`[SUCCESS] Generated exercises with ${modelConfig.name}`);
+        return json.exercices || {};
+      } catch (error) {
+        lastError = error;
+        console.error(`[ERROR] Exercise generation attempt ${attempt} failed:`, error.message);
+        
+        if (attempt < 2 && (error.message.includes('503') || error.message.includes('overloaded'))) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          continue;
+        }
+        break;
+      }
+    }
+  }
+  
+  console.warn('[WARN] Exercise generation failed, using default placeholders');
+  // Return default structure if generation fails
+  const defaultExercices = {};
+  criteres.forEach(c => {
+    defaultExercices[c] = [
+      `Exercice 1 pour le critère ${c} (à compléter)`,
+      `Exercice 2 pour le critère ${c} (à compléter)`,
+      `Exercice 3 pour le critère ${c} (à compléter)`
+    ];
+  });
+  return defaultExercices;
+}
+
 function buildPlanDocx({ enseignant, matiere, classe, unite }) {
   const doc = new Document({ sections: [{ properties: {}, children: [] }] });
   const children = [];
@@ -169,17 +275,154 @@ function buildPlanDocx({ enseignant, matiere, classe, unite }) {
   (unite.questions_conceptuelles || []).forEach(q => children.push(new Paragraph({ text: `• ${q}` })));
   children.push(new Paragraph({ text: "Questions invitant au débat:" }));
   (unite.questions_debat || []).forEach(q => children.push(new Paragraph({ text: `• ${q}` })));
+  
+  // Add objectives
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Objectifs spécifiques", heading: HeadingLevel.HEADING_2 }));
+  (unite.objectifs_specifiques || []).forEach(obj => children.push(new Paragraph({ text: `• ${obj}` })));
+  
+  // Add evaluation sommative section
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Évaluation sommative", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: unite.evaluation_sommative || "Évaluation à définir selon les critères d'évaluation de la matière." }));
+  
+  // Add approches de l'apprentissage
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Approches de l'apprentissage", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: unite.approches_apprentissage || "Compétences développées : pensée critique, communication, autogestion, recherche, compétences sociales." }));
+  
+  // Add content and learning process
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Contenu et processus d'apprentissage", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: unite.contenu || unite.processus_apprentissage || "Contenu à développer en fonction des chapitres et des objectifs spécifiques." }));
+  
+  // Add ressources
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Ressources", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: unite.ressources || "Manuels scolaires, ressources numériques, matériel de laboratoire (si applicable)." }));
+  
+  // Add differentiation
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Différenciation", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: unite.differenciation || "Adaptation selon les besoins : soutien supplémentaire, extensions pour élèves avancés, supports visuels/audio." }));
+  
+  // Add formative evaluation
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Évaluation formative", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: unite.evaluation_formative || "Observations continues, questionnements, quizz formatifs, rétroaction régulière." }));
+  
+  // Add reflections
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Réflexion", heading: HeadingLevel.HEADING_2 }));
+  children.push(new Paragraph({ text: "Avant l'enseignement:", heading: HeadingLevel.HEADING_3 }));
+  children.push(new Paragraph({ text: unite.reflexion_avant || "Préparation des ressources, planification des activités, anticipation des difficultés." }));
+  children.push(new Paragraph({ text: "Pendant l'enseignement:", heading: HeadingLevel.HEADING_3 }));
+  children.push(new Paragraph({ text: unite.reflexion_pendant || "Ajustements selon la progression, gestion du temps, adaptation aux besoins." }));
+  children.push(new Paragraph({ text: "Après l'enseignement:", heading: HeadingLevel.HEADING_3 }));
+  children.push(new Paragraph({ text: unite.reflexion_apres || "Analyse des résultats, points à améliorer, ajustements pour les prochaines unités." }));
 
   doc.addSection({ children });
   return Packer.toBuffer(doc);
 }
 
-function buildEvalDocx({ elevePlaceholders = true, matiere, classeKey, criteres = ["D"], uniteTitle = "", enonce = "" }) {
-  // Compose a simple one-page evaluation sheet based on descriptors
+async function buildEvalDocx({ 
+  elevePlaceholders = true, 
+  matiere, 
+  classeKey, 
+  criteres = ["D"], 
+  uniteTitle = "", 
+  enonce = "",
+  objectifs_specifiques = [],
+  unite = null // Full unite object for exercise generation
+}) {
+  // Compose a comprehensive evaluation document with AI-generated exercises
   const children = [];
+  
+  // Header section
   children.push(new Paragraph({ text: `Évaluation critériée – ${matiere}`, heading: HeadingLevel.TITLE, alignment: AlignmentType.CENTER }));
   if (uniteTitle) children.push(new Paragraph({ text: `Unité: ${uniteTitle}`, spacing: { after: 200 } }));
   if (enonce) children.push(new Paragraph({ text: `Énoncé de recherche: ${enonce}`, spacing: { after: 200 } }));
+  
+  // Add objectifs spécifiques section
+  if (objectifs_specifiques && objectifs_specifiques.length > 0) {
+    children.push(new Paragraph({ text: "" }));
+    children.push(new Paragraph({ text: "Objectifs spécifiques évalués", heading: HeadingLevel.HEADING_2 }));
+    objectifs_specifiques.forEach(obj => {
+      children.push(new Paragraph({ text: `• ${obj}`, spacing: { after: 100 } }));
+    });
+  }
+
+  // Generate exercises with Gemini AI if unite data is available
+  let exercicesData = null;
+  if (unite && matiere && classeKey) {
+    try {
+      console.log(`🎯 Generating exercises for ${matiere} - ${classeKey} with criteria: ${criteres.join(', ')}`);
+      
+      // Prepare descriptors for each criterion
+      const descripteurs = {};
+      criteres.forEach(c => {
+        const key = (matiere || "").toLowerCase();
+        const pool = DESCRIPTEURS[key] || DESCRIPTEURS[matiere] || DESCRIPTEURS[key.replaceAll(" ", "_")] || null;
+        const year = pool && (pool[classeKey] || pool[parseClasseToKey(classeKey, matiere)] || pool["débutant"] || pool["compétent"] || pool["expérimenté"]);
+        if (year && year[c]) {
+          descripteurs[c] = year[c];
+        }
+      });
+      
+      exercicesData = await generateExercicesWithGemini({
+        matiere,
+        classe: classeKey,
+        uniteTitle: uniteTitle || unite.titre,
+        enonce: enonce || unite.enonce_recherche,
+        criteres,
+        descripteurs
+      });
+      
+      console.log(`✅ Successfully generated ${Object.keys(exercicesData.exercices || {}).length} criterion groups`);
+    } catch (error) {
+      console.error('⚠️  Failed to generate exercises, continuing without them:', error.message);
+    }
+  }
+
+  // Add exercises section if available
+  if (exercicesData && exercicesData.exercices) {
+    children.push(new Paragraph({ text: "" }));
+    children.push(new Paragraph({ text: "Exercices d'évaluation", heading: HeadingLevel.HEADING_1, spacing: { before: 400, after: 200 } }));
+    children.push(new Paragraph({ 
+      text: "Les exercices suivants évaluent les objectifs spécifiques selon les critères d'évaluation du PEI.", 
+      spacing: { after: 300 } 
+    }));
+    
+    // Add exercises for each criterion
+    Object.entries(exercicesData.exercices).forEach(([critere, exercises]) => {
+      // Find descriptor for this criterion
+      const key = (matiere || "").toLowerCase();
+      const pool = DESCRIPTEURS[key] || DESCRIPTEURS[matiere] || DESCRIPTEURS[key.replaceAll(" ", "_")] || null;
+      const year = pool && (pool[classeKey] || pool[parseClasseToKey(classeKey, matiere)] || pool["débutant"] || pool["compétent"] || pool["expérimenté"]);
+      const descBlock = year && year[critere];
+      
+      children.push(new Paragraph({ text: "" }));
+      children.push(new Paragraph({ 
+        text: `Critère ${critere}${descBlock ? ` : ${descBlock.titre}` : ""}`, 
+        heading: HeadingLevel.HEADING_2,
+        spacing: { before: 300, after: 200 }
+      }));
+      
+      // Add each exercise for this criterion
+      exercises.forEach((exercice, idx) => {
+        children.push(new Paragraph({ 
+          text: `Exercice ${critere}.${idx + 1}`, 
+          heading: HeadingLevel.HEADING_3,
+          spacing: { before: 200, after: 100 }
+        }));
+        children.push(new Paragraph({ text: exercice, spacing: { after: 200 } }));
+      });
+    });
+  }
+
+  // Add descriptors and grading rubrics section
+  children.push(new Paragraph({ text: "" }));
+  children.push(new Paragraph({ text: "Grille d'évaluation", heading: HeadingLevel.HEADING_1, spacing: { before: 400, after: 200 } }));
 
   criteres.forEach(c => {
     // Try to find descriptors
@@ -189,12 +432,13 @@ function buildEvalDocx({ elevePlaceholders = true, matiere, classeKey, criteres 
     const year = pool && (pool[classeKey] || pool[parseClasseToKey(classeKey, matiere)] || pool["débutant"] || pool["compétent"] || pool["expérimenté"]);
     if (year && year[c]) descBlock = year[c];
 
-    children.push(new Paragraph({ text: `Critère ${c}${descBlock ? ` : ${descBlock.titre}` : ""}`, heading: HeadingLevel.HEADING_2 }));
+    children.push(new Paragraph({ text: "" }));
+    children.push(new Paragraph({ text: `Critère ${c}${descBlock ? ` : ${descBlock.titre}` : ""}`, heading: HeadingLevel.HEADING_2, spacing: { before: 300, after: 200 } }));
 
     const rows = [];
     rows.push(new TableRow({ children: [
       new TableCell({ width: { size: 15, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "Niveaux", bold: true })] }),
-      new TableCell({ width: { size: 85, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "Descripteurs" })] })
+      new TableCell({ width: { size: 85, type: WidthType.PERCENTAGE }, children: [new Paragraph({ text: "Descripteurs", bold: true })] })
     ] }));
 
     const niveaux = descBlock ? descBlock.niveaux : {
@@ -207,18 +451,19 @@ function buildEvalDocx({ elevePlaceholders = true, matiere, classeKey, criteres 
     Object.entries(niveaux).forEach(([niv, txt]) => {
       rows.push(new TableRow({ children: [
         new TableCell({ children: [new Paragraph({ text: niv })] }),
-        new TableCell({ children: [new Paragraph({ text: txt })] })
+        new TableCell({ children: [new Paragraph({ text: txt || "(Descripteur non disponible)" })] })
       ] }));
     });
 
     children.push(new Table({ rows, width: { size: 100, type: WidthType.PERCENTAGE } }));
 
     if (elevePlaceholders) {
-      children.push(new Paragraph({ text: "\nTâches (réponse de l'élève):", heading: HeadingLevel.HEADING_3 }));
+      children.push(new Paragraph({ text: "" }));
+      children.push(new Paragraph({ text: "Espace de travail pour l'élève:", heading: HeadingLevel.HEADING_3, spacing: { before: 200, after: 100 } }));
       children.push(new Paragraph({ text: "1. ............................................................." }));
       children.push(new Paragraph({ text: "2. ............................................................." }));
       children.push(new Paragraph({ text: "3. ............................................................." }));
-      children.push(new Paragraph({ text: "Espace pour insérer une image/ressource: [collez ici]" }));
+      children.push(new Paragraph({ text: "Espace pour insérer une image/ressource: [collez ici]", spacing: { after: 300 } }));
     }
   });
 
@@ -318,7 +563,18 @@ export default async function handler(req, res) {
       const body = await readBody(req);
       const { matiere, classe, unite, criteres = ["D"], telecharger = true } = body || {};
       const classeKey = parseClasseToKey(classe, matiere);
-      const buffer = await buildEvalDocx({ matiere, classeKey, criteres, uniteTitle: unite?.titre_unite || "", enonce: unite?.enonce_recherche || "" });
+      
+      // Build comprehensive evaluation document with AI-generated exercises
+      const buffer = await buildEvalDocx({ 
+        matiere, 
+        classeKey, 
+        criteres, 
+        uniteTitle: unite?.titre_unite || unite?.titre || "", 
+        enonce: unite?.enonce_recherche || "",
+        objectifs_specifiques: unite?.objectifs_specifiques || [],
+        unite: unite // Pass full unite object for exercise generation
+      });
+      
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
       // Sanitize filename to remove accents and special characters (HTTP header requirement)
