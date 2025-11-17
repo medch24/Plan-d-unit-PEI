@@ -239,6 +239,15 @@ function json(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+// Utility function to create safe filenames (ASCII-only for HTTP headers)
+function sanitizeFilename(str) {
+  return str
+    .normalize('NFD') // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+    .replace(/[^a-zA-Z0-9_-]/g, '_') // Replace non-ASCII with underscore
+    .replace(/_+/g, '_'); // Remove consecutive underscores
+}
+
 export default async function handler(req, res) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
@@ -297,8 +306,10 @@ export default async function handler(req, res) {
       const buffer = await buildPlanDocx({ enseignant, matiere, classe, unite });
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      const filename = `Plan_Unite_${(matiere||'').replace(/\s+/g,'_')}_${Date.now()}.docx`;
-      res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+      // Sanitize filename to remove accents and special characters (HTTP header requirement)
+      const safeName = sanitizeFilename(matiere || 'Unite');
+      const filename = `Plan_Unite_${safeName}_${Date.now()}.docx`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       // Packer.toBuffer() already returns a Buffer, don't wrap it again
       return res.end(buffer);
     }
@@ -310,8 +321,10 @@ export default async function handler(req, res) {
       const buffer = await buildEvalDocx({ matiere, classeKey, criteres, uniteTitle: unite?.titre_unite || "", enonce: unite?.enonce_recherche || "" });
       res.statusCode = 200;
       res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-      const filename = `Evaluation_${(matiere||'').replace(/\s+/g,'_')}_${Date.now()}.docx`;
-      res.setHeader("Content-Disposition", `attachment; filename=${filename}`);
+      // Sanitize filename to remove accents and special characters (HTTP header requirement)
+      const safeName = sanitizeFilename(matiere || 'Evaluation');
+      const filename = `Evaluation_${safeName}_${Date.now()}.docx`;
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       // Packer.toBuffer() already returns a Buffer, don't wrap it again
       return res.end(buffer);
     }
