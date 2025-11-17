@@ -63,6 +63,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             // save last form
             localStorage.setItem(SAVE_KEY, JSON.stringify({ enseignant, classe, matiere, chapitres }));
+            
+            console.log('[INFO] Sending request to /api/generate-units');
+            
             // 3. Appeler l'API
             const response = await fetch('/api/generate-units', {
                 method: 'POST',
@@ -72,19 +75,42 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify(data),
             });
 
+            console.log('[INFO] Response status:', response.status);
+
             if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Une erreur est survenue lors de la génération.');
+                let errorMessage = 'Une erreur est survenue lors de la génération.';
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorMessage;
+                    console.error('[ERROR] API error:', errorData);
+                } catch (e) {
+                    console.error('[ERROR] Failed to parse error response:', e);
+                }
+                throw new Error(errorMessage);
             }
 
             const generatedData = await response.json();
+            console.log('[INFO] Generated units:', generatedData.unites?.length || 0);
+            
             // 4. Afficher les résultats
             displayResults(generatedData.unites, { enseignant, classe, matiere });
+            
             // Save units to DB for this attempt essai 2 if requested later
-            await fetch('/api/save-units', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enseignant, classe, matiere, units: generatedData.unites, essai }) });
+            try {
+                await fetch('/api/save-units', { 
+                    method:'POST', 
+                    headers:{'Content-Type':'application/json'}, 
+                    body: JSON.stringify({ enseignant, classe, matiere, units: generatedData.unites, essai }) 
+                });
+                console.log('[INFO] Units saved to database');
+            } catch (dbError) {
+                console.warn('[WARN] Failed to save units to database:', dbError);
+                // Don't fail the whole process if DB save fails
+            }
 
         } catch (error) {
-            resultsDiv.innerHTML = `<div class="error-message"><strong>Erreur :</strong> ${error.message}</div>`;
+            console.error('[ERROR] Generation failed:', error);
+            resultsDiv.innerHTML = `<div class="error-message"><strong>Erreur :</strong> ${error.message}<br><small>Consultez la console pour plus de détails.</small></div>`;
         } finally {
             // 5. Cacher le chargement
             loadingDiv.classList.add('hidden');

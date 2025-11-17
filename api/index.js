@@ -17,11 +17,27 @@ const MONGO_URL = process.env.MONGO_URL || process.env.MONGODB_URI || "";
 let cachedDb = null;
 async function getDb() {
   if (cachedDb) return cachedDb;
-  if (!MONGO_URL) throw new Error("MONGO_URL manquant dans les variables d'environnement");
-  const client = new MongoClient(MONGO_URL, { serverSelectionTimeoutMS: 8000 });
-  await client.connect();
-  cachedDb = client.db();
-  return cachedDb;
+  
+  if (!MONGO_URL) {
+    console.warn('[WARN] MONGO_URL is not configured - database features will be disabled');
+    throw new Error("MONGO_URL manquant dans les variables d'environnement");
+  }
+  
+  try {
+    console.log('[INFO] Connecting to MongoDB...');
+    const client = new MongoClient(MONGO_URL, { 
+      serverSelectionTimeoutMS: 8000,
+      maxPoolSize: 10,
+      minPoolSize: 1
+    });
+    await client.connect();
+    cachedDb = client.db();
+    console.log('[INFO] MongoDB connection established');
+    return cachedDb;
+  } catch (error) {
+    console.error('[ERROR] MongoDB connection failed:', error.message);
+    throw new Error(`Erreur de connexion à MongoDB: ${error.message}`);
+  }
 }
 
 // Use complete official IB PEI descriptors from separate file
@@ -53,22 +69,38 @@ function parseClasseToKey(classe, matiere) {
 }
 
 async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
-  if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY manquant dans Vercel env");
+  if (!GEMINI_API_KEY) {
+    console.error('[ERROR] GEMINI_API_KEY is missing');
+    throw new Error("GEMINI_API_KEY manquant dans Vercel env");
+  }
+  
+  console.log('[INFO] Initializing Gemini AI');
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" });
 
   const nbUnites = matiere === "Langue et littérature" ? 6 : 4;
+  console.log(`[INFO] Generating ${nbUnites} units for ${matiere} - ${classe}`);
+  
   const prompt = `Tu es un expert PEI IB. Génère EXACTEMENT ${nbUnites} unités en regroupant ces chapitres en thèmes cohérents. Donne pour chaque unité: titre_unite, chapitres_inclus (index), duree totale estimée (en heures, somme "poids" approx 4h/chapitre si absent), concept_cle, 2-3 concepts_connexes, contexte_mondial, enonce_recherche, 2-3 questions_factuelles, 2-3 questions_conceptuelles, 2-3 questions_debat, objectifs_specifiques (liste d'IDs tels que A.i, B.ii...). Réponds EN JSON strict: {"unites":[{...}]}. Matière: ${matiere}. Année: ${classe}. Chapitres: ${JSON.stringify(chapitres)}.`;
 
-  const res = await model.generateContent(prompt);
-  let text = res.response.text();
-  // Clean code-fences if any
-  if (text.includes("```")) {
-    const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
-    if (m) text = m[1];
+  try {
+    const res = await model.generateContent(prompt);
+    let text = res.response.text();
+    console.log('[INFO] Gemini response received, length:', text.length);
+    
+    // Clean code-fences if any
+    if (text.includes("```")) {
+      const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
+      if (m) text = m[1];
+    }
+    
+    const json = JSON.parse(text);
+    console.log('[INFO] Successfully parsed JSON response');
+    return json.unites || [];
+  } catch (error) {
+    console.error('[ERROR] Gemini API call failed:', error.message);
+    throw new Error(`Erreur lors de la génération avec Gemini: ${error.message}`);
   }
-  const json = JSON.parse(text);
-  return json.unites || [];
 }
 
 function buildPlanDocx({ enseignant, matiere, classe, unite }) {
@@ -156,6 +188,18 @@ function json(res, status, payload) {
 }
 
 export default async function handler(req, res) {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With, Content-Type, Accept, Authorization');
+  
+  // Handle OPTIONS request
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 200;
+    return res.end();
+  }
+  
   try {
     const url = new URL(req.url, "http://localhost");
     const pathname = url.pathname;
@@ -219,10 +263,16 @@ export default async function handler(req, res) {
     }
 
     // Fallback
-    return json(res, 404, { error: "Route inconnue" });
+    console.log(`[404] Route not found: ${pathname}`);
+    return json(res, 404, { error: "Route inconnue", pathname });
   } catch (e) {
-    console.error(e);
-    return json(res, 500, { error: e.message || String(e) });
+    console.error('[ERROR] Handler exception:', e);
+    console.error('[ERROR] Stack:', e.stack);
+    return json(res, 500, { 
+      error: e.message || String(e),
+      type: e.constructor.name,
+      stack: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 }
 

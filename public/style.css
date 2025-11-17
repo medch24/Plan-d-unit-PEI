@@ -186,3 +186,25 @@ header h1 {
     background-color: #e9ecef;
     font-weight: bold;
 }
+
+/* Error message styles */
+.error-message {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.error-message strong {
+    display: block;
+    margin-bottom: 10px;
+    font-size: 1.1em;
+}
+
+.error-message small {
+    color: #856404;
+    font-style: italic;
+}
