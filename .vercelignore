@@ -1,5 +1,6 @@
 __pycache__/
 *.pyc
+*.py
 .git/
 .env
 *.log
@@ -8,3 +9,6 @@ __pycache__/
 test_generation.py
 .vscode/
 .idea/
+_archive/
+generated_units/
+node_modules/
