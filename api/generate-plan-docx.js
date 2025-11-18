@@ -11,17 +11,31 @@ export default async function handler(req, res) {
     try {
         const { enseignant, matiere, classe, unite } = req.body;
 
+        console.log('[INFO] Generate Plan Request received');
+        console.log('[INFO] Environment variables check:', {
+            hasTemplateUrl: !!PLAN_TEMPLATE_URL,
+            templateUrlLength: PLAN_TEMPLATE_URL?.length || 0
+        });
+
         // 1. Récupérer l'URL du modèle depuis les variables d'environnement
         const templateUrl = PLAN_TEMPLATE_URL;
         if (!templateUrl) {
-            throw new Error("L'URL du modèle de plan n'est pas configurée.");
+            const error = "L'URL du modèle de plan n'est pas configurée. Veuillez définir PLAN_TEMPLATE_URL dans les variables d'environnement Vercel.";
+            console.error('[ERROR]', error);
+            return res.status(500).json({ 
+                error: error,
+                hint: "Configurez PLAN_TEMPLATE_URL dans Vercel Dashboard > Settings > Environment Variables"
+            });
         }
 
         // 2. Télécharger le modèle de document Word
         console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
         const response = await fetch(templateUrl);
         if (!response.ok) {
-            throw new Error(`Erreur lors du téléchargement du modèle: ${response.statusText}`);
+            const errorMsg = `Erreur lors du téléchargement du modèle: ${response.status} ${response.statusText}`;
+            console.error('[ERROR]', errorMsg);
+            console.error('[ERROR] Template URL:', templateUrl);
+            throw new Error(errorMsg + `. Vérifiez que l'URL est accessible: ${templateUrl}`);
         }
         const templateArrayBuffer = await response.arrayBuffer();
         console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
