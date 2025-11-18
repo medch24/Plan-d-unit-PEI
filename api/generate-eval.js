@@ -6,6 +6,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const EVAL_TEMPLATE_URL = process.env.EVAL_TEMPLATE_URL || "";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
+// Version: 1.1 - Environment variables support
 /**
  * Extract sub-criteria from descriptors (i, ii, iii, iv)
  */

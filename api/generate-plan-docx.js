@@ -3,6 +3,7 @@ import Docxtemplater from 'docxtemplater';
 
 const PLAN_TEMPLATE_URL = process.env.PLAN_TEMPLATE_URL || "";
 
+// Version: 1.1 - Environment variables support
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).send('Method Not Allowed');
