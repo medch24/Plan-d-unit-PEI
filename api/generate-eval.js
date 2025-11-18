@@ -226,16 +226,29 @@ export default async function handler(req, res) {
         const critere = Array.isArray(criteres) ? criteres[0] : criteres;
         
         // Get criterion data
-        const matiereKey = (matiere || "").toLowerCase().replace(/\s+/g, '_');
-        const pool = DESCRIPTEURS_COMPLETS[matiereKey];
+        // Try different key formats to find the matching descriptors
+        const matiereNormalized = (matiere || "").toLowerCase();
+        let pool = DESCRIPTEURS_COMPLETS[matiereNormalized] || 
+                   DESCRIPTEURS_COMPLETS[matiereNormalized.replace(/\s+/g, '_')] ||
+                   DESCRIPTEURS_COMPLETS[matiereNormalized.replace(/\s+/g, '-')] ||
+                   DESCRIPTEURS_COMPLETS[matiere]; // Try original case
         
         if (!pool) {
             console.error('[ERROR] Matière non trouvée:', matiere);
+            console.error('[ERROR] Clés disponibles:', Object.keys(DESCRIPTEURS_COMPLETS));
             return res.status(400).json({ 
                 error: `Matière non trouvée: ${matiere}`,
-                availableMatiers: Object.keys(DESCRIPTEURS_COMPLETS)
+                availableMatiers: Object.keys(DESCRIPTEURS_COMPLETS),
+                triedKeys: [
+                    matiereNormalized,
+                    matiereNormalized.replace(/\s+/g, '_'),
+                    matiereNormalized.replace(/\s+/g, '-'),
+                    matiere
+                ]
             });
         }
+        
+        console.log('[INFO] Matière trouvée:', matiere, '-> Key used:', matiereNormalized);
         
         // Determine PEI level
         let peiLevel = 'pei1';
