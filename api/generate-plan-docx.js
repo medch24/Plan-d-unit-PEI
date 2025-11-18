@@ -24,12 +24,22 @@ export default async function handler(req, res) {
             throw new Error(`Erreur lors du téléchargement du modèle: ${response.statusText}`);
         }
         const templateArrayBuffer = await response.arrayBuffer();
+        console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
+        
+        if (templateArrayBuffer.byteLength === 0) {
+            throw new Error("Le template téléchargé est vide");
+        }
 
         // 3. Charger le modèle avec PizZip et Docxtemplater
+        console.log('[INFO] Loading template with PizZip...');
         const zip = new PizZip(Buffer.from(templateArrayBuffer));
         const doc = new Docxtemplater(zip, {
             paragraphLoop: true,
             linebreaks: true,
+            nullGetter: (part) => {
+                console.warn(`⚠️  Missing placeholder in template: ${part.value}`);
+                return '';
+            }
         });
 
         // 4. Préparer les données pour le template
@@ -69,13 +79,17 @@ export default async function handler(req, res) {
             reflexion_apres: unite?.reflexion_apres || 'Analyse des résultats, points à améliorer, ajustements pour les prochaines unités.'
         };
 
+        console.log('[INFO] Rendering template with data...');
         doc.setData(dataToRender);
         doc.render();
 
+        console.log('[INFO] Generating document buffer...');
         const buf = doc.getZip().generate({
             type: 'nodebuffer',
             compression: 'DEFLATE',
         });
+        
+        console.log('[INFO] Document generated successfully, size:', buf.length);
         
         // 5. Envoyer le fichier généré
         res.setHeader('Content-Disposition', 'attachment; filename=Plan_Unite.docx');
@@ -84,6 +98,7 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error('Erreur lors de la génération du DOCX:', error);
+        console.error('Stack trace:', error.stack);
         res.status(500).json({ error: `Erreur interne: ${error.message}` });
     }
 }
