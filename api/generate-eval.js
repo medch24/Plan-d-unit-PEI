@@ -307,8 +307,40 @@ export default async function handler(req, res) {
             }
         });
         
-        // Prepare simple data structure matching template placeholders
-        // For simple template with {variable} placeholders (not arrays)
+        // Prepare data structure matching template structure
+        // Template uses loops for tasks and descriptors
+        const taches = [];
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+            const exercise = exercicesGenerated[roman];
+            taches.push({
+                index: `${critere}.${roman}`,
+                description: exercise || `[À compléter par l'enseignant pour ${critere}.${roman}]`
+            });
+        });
+        
+        const descripteurs = [
+            { 
+                niveaux: '1-2', 
+                descripteur: criterionData.niveaux['1-2'] || '',
+                descripteurs: criterionData.niveaux['1-2'] || '' // Support both naming conventions
+            },
+            { 
+                niveaux: '3-4', 
+                descripteur: criterionData.niveaux['3-4'] || '',
+                descripteurs: criterionData.niveaux['3-4'] || ''
+            },
+            { 
+                niveaux: '5-6', 
+                descripteur: criterionData.niveaux['5-6'] || '',
+                descripteurs: criterionData.niveaux['5-6'] || ''
+            },
+            { 
+                niveaux: '7-8', 
+                descripteur: criterionData.niveaux['7-8'] || '',
+                descripteurs: criterionData.niveaux['7-8'] || ''
+            }
+        ];
+        
         const dataToRender = {
             annee_pei: classe || '',
             groupe_matiere: matiere || '',
@@ -317,6 +349,12 @@ export default async function handler(req, res) {
             enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
             lettre_critere: critere,
             nom_objectif_specifique: criterionData.titre,
+            
+            // Array for loops in template
+            taches: taches,
+            descripteurs: descripteurs,
+            
+            // Also provide as text for simple placeholders
             exercices: exercisesText,
             descripteur_1_2: criterionData.niveaux['1-2'] || '',
             descripteur_3_4: criterionData.niveaux['3-4'] || '',
