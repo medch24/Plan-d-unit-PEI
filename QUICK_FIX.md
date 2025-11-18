@@ -96,6 +96,21 @@ Après redéploiement, vous devriez voir dans les logs:
 ```
 → Les variables ne sont pas ajoutées ou le redéploiement n'a pas été fait.
 
+## 🔧 Problèmes Spécifiques Résolus
+
+### ❌ Erreur 400: "Matière non trouvée"
+
+**Symptôme:** `Matière non trouvée: Individus et sociétés`
+
+**Cause:** Le nom de la matière ne correspondait pas exactement aux clés dans les descripteurs.
+
+**✅ Solution:** Le code essaie maintenant plusieurs formats automatiquement:
+- Minuscules avec espaces: `individus et sociétés` ✓
+- Minuscules avec underscores: `individus_et_sociétés`
+- Original: `Individus et sociétés`
+
+**Plus de détails:** Voir `DEBUG_MATIERES.md`
+
 ## 🆘 Si Ça Ne Marche Toujours Pas
 
 ### Checklist Complète
