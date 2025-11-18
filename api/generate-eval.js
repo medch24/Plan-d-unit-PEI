@@ -213,6 +213,13 @@ export default async function handler(req, res) {
     try {
         const { matiere, classe, unite, criteres = ["D"] } = req.body;
         
+        console.log('[INFO] Generate Eval Request received');
+        console.log('[INFO] Environment variables check:', {
+            hasTemplateUrl: !!EVAL_TEMPLATE_URL,
+            templateUrlLength: EVAL_TEMPLATE_URL?.length || 0,
+            hasGeminiKey: !!GEMINI_API_KEY
+        });
+        
         const classeKey = parseClasseToKey(classe, matiere);
         
         // Use first criterion if multiple provided
@@ -223,7 +230,11 @@ export default async function handler(req, res) {
         const pool = DESCRIPTEURS_COMPLETS[matiereKey];
         
         if (!pool) {
-            return res.status(400).json({ error: `Matière non trouvée: ${matiere}` });
+            console.error('[ERROR] Matière non trouvée:', matiere);
+            return res.status(400).json({ 
+                error: `Matière non trouvée: ${matiere}`,
+                availableMatiers: Object.keys(DESCRIPTEURS_COMPLETS)
+            });
         }
         
         // Determine PEI level
@@ -281,13 +292,21 @@ export default async function handler(req, res) {
         // Download template
         const templateUrl = EVAL_TEMPLATE_URL;
         if (!templateUrl) {
-            throw new Error("L'URL du modèle d'évaluation n'est pas configurée.");
+            const error = "L'URL du modèle d'évaluation n'est pas configurée. Veuillez définir EVAL_TEMPLATE_URL dans les variables d'environnement Vercel.";
+            console.error('[ERROR]', error);
+            return res.status(500).json({ 
+                error: error,
+                hint: "Configurez EVAL_TEMPLATE_URL dans Vercel Dashboard > Settings > Environment Variables"
+            });
         }
         
         console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
         const response = await fetch(templateUrl);
         if (!response.ok) {
-            throw new Error(`Erreur lors du téléchargement du modèle: ${response.statusText}`);
+            const errorMsg = `Erreur lors du téléchargement du modèle: ${response.status} ${response.statusText}`;
+            console.error('[ERROR]', errorMsg);
+            console.error('[ERROR] Template URL:', templateUrl);
+            throw new Error(errorMsg + `. Vérifiez que l'URL est accessible: ${templateUrl}`);
         }
         const templateArrayBuffer = await response.arrayBuffer();
         console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
