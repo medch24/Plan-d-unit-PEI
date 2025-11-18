@@ -290,46 +290,51 @@ export default async function handler(req, res) {
             throw new Error(`Erreur lors du téléchargement du modèle: ${response.statusText}`);
         }
         const templateArrayBuffer = await response.arrayBuffer();
+        console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
+        
+        if (templateArrayBuffer.byteLength === 0) {
+            throw new Error("Le template téléchargé est vide");
+        }
         
         // Fill template with docxtemplater
         const zip = new PizZip(Buffer.from(templateArrayBuffer));
         const doc = new Docxtemplater(zip, {
             paragraphLoop: true,
             linebreaks: true,
+            nullGetter: (part) => {
+                console.warn(`⚠️  Missing placeholder in template: ${part.value}`);
+                return '';
+            }
         });
         
-        // Prepare data matching template structure
+        // Prepare simple data structure matching template placeholders
+        // For simple template with {variable} placeholders (not arrays)
         const dataToRender = {
             annee_pei: classe || '',
             groupe_matiere: matiere || '',
             titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
             objectifs_specifiques: objectifs_specifiques_text,
             enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-            
-            // Structure for multiple objectives (array of objects)
-            objectifs: [{
-                lettre_critere: critere,
-                nom_objectif_specifique: criterionData.titre,
-                taches: Object.entries(exercicesGenerated).map(([roman, exercice], idx) => ({
-                    index: `${critere}.${roman}`,
-                    description: exercice
-                })),
-                descripteurs: [
-                    { niveaux: '1-2', descripteur: criterionData.niveaux['1-2'] || '' },
-                    { niveaux: '3-4', descripteur: criterionData.niveaux['3-4'] || '' },
-                    { niveaux: '5-6', descripteur: criterionData.niveaux['5-6'] || '' },
-                    { niveaux: '7-8', descripteur: criterionData.niveaux['7-8'] || '' }
-                ]
-            }]
+            lettre_critere: critere,
+            nom_objectif_specifique: criterionData.titre,
+            exercices: exercisesText,
+            descripteur_1_2: criterionData.niveaux['1-2'] || '',
+            descripteur_3_4: criterionData.niveaux['3-4'] || '',
+            descripteur_5_6: criterionData.niveaux['5-6'] || '',
+            descripteur_7_8: criterionData.niveaux['7-8'] || ''
         };
         
+        console.log('[INFO] Rendering template with data...');
         doc.setData(dataToRender);
         doc.render();
 
+        console.log('[INFO] Generating document buffer...');
         const buf = doc.getZip().generate({
             type: 'nodebuffer',
             compression: 'DEFLATE',
         });
+
+        console.log('[INFO] Document generated successfully, size:', buf.length);
 
         // Send file
         res.setHeader('Content-Disposition', 'attachment; filename=Evaluation.docx');
@@ -338,6 +343,7 @@ export default async function handler(req, res) {
 
     } catch (error) {
         console.error("Erreur lors de la génération du DOCX d'évaluation:", error);
+        console.error("Stack trace:", error.stack);
         res.status(500).json({ error: `Erreur interne: ${error.message}` });
     }
 }
