@@ -3,10 +3,11 @@ import Docxtemplater from 'docxtemplater';
 import { DESCRIPTEURS_COMPLETS } from './descripteurs-complets.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-const EVAL_TEMPLATE_URL = process.env.EVAL_TEMPLATE_URL || "";
+function pickEnv(...keys){ for(const k of keys){ if(process.env[k]) return process.env[k]; } return ""; }
+const EVAL_TEMPLATE_URL = pickEnv('EVAL_TEMPLATE_URL','Eval_TEMPLATE_URL','EVALUATION_TEMPLATE_URL','Evaluation_TEMPLATE_URL');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
-// Version: 1.1 - Environment variables support
+// Version: 1.2 - Robust env var handling + better template validation
 /**
  * Extract sub-criteria from descriptors (i, ii, iii, iv)
  */
@@ -315,18 +316,24 @@ export default async function handler(req, res) {
         }
         
         console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
-        const response = await fetch(templateUrl);
+        const response = await fetch(templateUrl, { redirect: 'follow' });
         if (!response.ok) {
             const errorMsg = `Erreur lors du téléchargement du modèle: ${response.status} ${response.statusText}`;
             console.error('[ERROR]', errorMsg);
             console.error('[ERROR] Template URL:', templateUrl);
-            throw new Error(errorMsg + `. Vérifiez que l'URL est accessible: ${templateUrl}`);
+            return res.status(500).json({ error: errorMsg });
+        }
+        const ct = response.headers.get('content-type') || '';
+        if (!ct.includes('officedocument.wordprocessingml.document')){
+            const preview = await response.text();
+            console.error('[ERROR] Template URL ne renvoie pas un DOCX. Content-Type:', ct, 'Preview:', preview.substring(0,200));
+            return res.status(500).json({ error: 'EVAL_TEMPLATE_URL ne renvoie pas un DOCX public. Vérifiez le partage (accessible à tous) ou utilisez un fichier depuis /public/templates' });
         }
         const templateArrayBuffer = await response.arrayBuffer();
         console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
         
         if (templateArrayBuffer.byteLength === 0) {
-            throw new Error("Le template téléchargé est vide");
+            return res.status(500).json({ error: 'Le template téléchargé est vide' });
         }
         
         // Fill template with docxtemplater
@@ -374,6 +381,10 @@ export default async function handler(req, res) {
             }
         ];
         
+        const objectifsArray = Array.isArray(unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
+            ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
+            : [];
+
         const dataToRender = {
             annee_pei: classe || '',
             groupe_matiere: matiere || '',
@@ -383,12 +394,14 @@ export default async function handler(req, res) {
             lettre_critere: critere,
             nom_objectif_specifique: criterionData.titre,
             
-            // Array for loops in template
+            // Arrays for loops in template
             taches: taches,
             descripteurs: descripteurs,
+            objectifs: objectifsArray.map((o, i) => ({ index: i + 1, nom: o, texte: o })),
             
             // Also provide as text for simple placeholders
             exercices: exercisesText,
+            objectifs_list: objectifsArray.map(o => `• ${o}`).join('\n'),
             descripteur_1_2: criterionData.niveaux['1-2'] || '',
             descripteur_3_4: criterionData.niveaux['3-4'] || '',
             descripteur_5_6: criterionData.niveaux['5-6'] || '',
@@ -408,7 +421,8 @@ export default async function handler(req, res) {
         console.log('[INFO] Document generated successfully, size:', buf.length);
 
         // Send file
-        res.setHeader('Content-Disposition', 'attachment; filename=Evaluation.docx');
+        const ts = Date.now();
+        res.setHeader('Content-Disposition', `attachment; filename=Evaluation_${ts}.docx`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
         res.status(200).send(buf);
 
