@@ -1,5 +1,11 @@
 import PizZip from 'pizzip';
 import Docxtemplater from 'docxtemplater';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Be tolerant to different env var namings set in Vercel dashboard
 function pickEnv(...keys){
@@ -9,6 +15,7 @@ function pickEnv(...keys){
     return "";
 }
 const PLAN_TEMPLATE_URL = pickEnv('PLAN_TEMPLATE_URL','Plan_TEMPLATE_URL','PLAN_URL','Plan_URL');
+const LOCAL_PLAN_TEMPLATE_PATH = join(__dirname, '..', 'public', 'templates', 'plan_template.docx');
 
 // Version: 1.2 - Robust env var handling + better template validation
 export default async function handler(req, res) {
@@ -36,26 +43,47 @@ export default async function handler(req, res) {
             });
         }
 
-        // 2. Télécharger le modèle de document Word
-        console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
-        const response = await fetch(templateUrl, { redirect: 'follow' });
-        if (!response.ok) {
-            const errorMsg = `Erreur lors du téléchargement du modèle: ${response.status} ${response.statusText}`;
-            console.error('[ERROR]', errorMsg);
-            console.error('[ERROR] Template URL:', templateUrl);
-            return res.status(500).json({ error: errorMsg });
-        }
-        const ct = response.headers.get('content-type') || '';
-        if (!ct.includes('officedocument.wordprocessingml.document')){
-            const preview = await response.text();
-            console.error('[ERROR] Template URL ne renvoie pas un DOCX. Content-Type:', ct, 'Preview:', preview.substring(0,200));
-            return res.status(500).json({ error: 'PLAN_TEMPLATE_URL ne renvoie pas un DOCX public. Vérifiez le partage (accessible à tous) ou utilisez un fichier depuis /public/templates' });
-        }
-        const templateArrayBuffer = await response.arrayBuffer();
-        console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
+        // 2. Try to load template: URL first, then local fallback
+        let templateArrayBuffer;
         
-        if (templateArrayBuffer.byteLength === 0) {
-            return res.status(500).json({ error: 'Le template téléchargé est vide' });
+        if (templateUrl) {
+            try {
+                console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
+                const response = await fetch(templateUrl, { redirect: 'follow' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const ct = response.headers.get('content-type') || '';
+                if (!ct.includes('officedocument.wordprocessingml.document')){
+                    throw new Error(`Invalid content-type: ${ct}`);
+                }
+                templateArrayBuffer = await response.arrayBuffer();
+                console.log(`[INFO] Template downloaded from URL, size: ${templateArrayBuffer.byteLength} bytes`);
+                
+                if (templateArrayBuffer.byteLength === 0) {
+                    throw new Error('Template is empty');
+                }
+            } catch (urlError) {
+                console.warn('[WARN] Failed to load template from URL:', urlError.message);
+                console.log('[INFO] Falling back to local template...');
+                templateArrayBuffer = null;
+            }
+        }
+        
+        // Fallback to local template if URL failed or not configured
+        if (!templateArrayBuffer) {
+            try {
+                console.log(`[INFO] Loading local template from ${LOCAL_PLAN_TEMPLATE_PATH}`);
+                const localBuffer = readFileSync(LOCAL_PLAN_TEMPLATE_PATH);
+                templateArrayBuffer = localBuffer.buffer.slice(localBuffer.byteOffset, localBuffer.byteOffset + localBuffer.byteLength);
+                console.log(`[INFO] Local template loaded, size: ${templateArrayBuffer.byteLength} bytes`);
+            } catch (localError) {
+                console.error('[ERROR] Failed to load local template:', localError.message);
+                return res.status(500).json({ 
+                    error: 'Impossible de charger le template (URL et local ont échoué)',
+                    details: localError.message
+                });
+            }
         }
 
         // 3. Charger le modèle avec PizZip et Docxtemplater

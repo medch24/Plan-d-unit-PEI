@@ -3,9 +3,19 @@ import Docxtemplater from 'docxtemplater';
 import { DESCRIPTEURS_COMPLETS } from './descripteurs-complets.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 function pickEnv(...keys){ for(const k of keys){ if(process.env[k]) return process.env[k]; } return ""; }
 const EVAL_TEMPLATE_URL = pickEnv('EVAL_TEMPLATE_URL','Eval_TEMPLATE_URL','EVALUATION_TEMPLATE_URL','Evaluation_TEMPLATE_URL');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
+
+// Local fallback template path
+const LOCAL_EVAL_TEMPLATE_PATH = join(__dirname, '..', 'public', 'templates', 'evaluation_template.docx');
 
 // Version: 1.2 - Robust env var handling + better template validation
 /**
@@ -368,36 +378,48 @@ export default async function handler(req, res) {
             objectifs_specifiques_text += `${roman}. ${description}\n`;
         });
         
-        // Download template
+        // Try to load template: URL first, then local fallback
+        let templateArrayBuffer;
         const templateUrl = EVAL_TEMPLATE_URL;
-        if (!templateUrl) {
-            const error = "L'URL du modèle d'évaluation n'est pas configurée. Veuillez définir EVAL_TEMPLATE_URL dans les variables d'environnement Vercel.";
-            console.error('[ERROR]', error);
-            return res.status(500).json({ 
-                error: error,
-                hint: "Configurez EVAL_TEMPLATE_URL dans Vercel Dashboard > Settings > Environment Variables"
-            });
+        
+        if (templateUrl) {
+            try {
+                console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
+                const response = await fetch(templateUrl, { redirect: 'follow' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                const ct = response.headers.get('content-type') || '';
+                if (!ct.includes('officedocument.wordprocessingml.document')){
+                    throw new Error(`Invalid content-type: ${ct}`);
+                }
+                templateArrayBuffer = await response.arrayBuffer();
+                console.log(`[INFO] Template downloaded from URL, size: ${templateArrayBuffer.byteLength} bytes`);
+                
+                if (templateArrayBuffer.byteLength === 0) {
+                    throw new Error('Template is empty');
+                }
+            } catch (urlError) {
+                console.warn('[WARN] Failed to load template from URL:', urlError.message);
+                console.log('[INFO] Falling back to local template...');
+                templateArrayBuffer = null;
+            }
         }
         
-        console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
-        const response = await fetch(templateUrl, { redirect: 'follow' });
-        if (!response.ok) {
-            const errorMsg = `Erreur lors du téléchargement du modèle: ${response.status} ${response.statusText}`;
-            console.error('[ERROR]', errorMsg);
-            console.error('[ERROR] Template URL:', templateUrl);
-            return res.status(500).json({ error: errorMsg });
-        }
-        const ct = response.headers.get('content-type') || '';
-        if (!ct.includes('officedocument.wordprocessingml.document')){
-            const preview = await response.text();
-            console.error('[ERROR] Template URL ne renvoie pas un DOCX. Content-Type:', ct, 'Preview:', preview.substring(0,200));
-            return res.status(500).json({ error: 'EVAL_TEMPLATE_URL ne renvoie pas un DOCX public. Vérifiez le partage (accessible à tous) ou utilisez un fichier depuis /public/templates' });
-        }
-        const templateArrayBuffer = await response.arrayBuffer();
-        console.log(`[INFO] Template downloaded, size: ${templateArrayBuffer.byteLength} bytes`);
-        
-        if (templateArrayBuffer.byteLength === 0) {
-            return res.status(500).json({ error: 'Le template téléchargé est vide' });
+        // Fallback to local template if URL failed or not configured
+        if (!templateArrayBuffer) {
+            try {
+                console.log(`[INFO] Loading local template from ${LOCAL_EVAL_TEMPLATE_PATH}`);
+                const localBuffer = readFileSync(LOCAL_EVAL_TEMPLATE_PATH);
+                templateArrayBuffer = localBuffer.buffer.slice(localBuffer.byteOffset, localBuffer.byteOffset + localBuffer.byteLength);
+                console.log(`[INFO] Local template loaded, size: ${templateArrayBuffer.byteLength} bytes`);
+            } catch (localError) {
+                console.error('[ERROR] Failed to load local template:', localError.message);
+                return res.status(500).json({ 
+                    error: 'Impossible de charger le template (URL et local ont échoué)',
+                    details: localError.message
+                });
+            }
         }
         
         // Fill template with docxtemplater
@@ -450,6 +472,8 @@ export default async function handler(req, res) {
             ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
             : [];
 
+        // FINAL FIX: Your template has nested structure that's causing the error
+        // We provide BOTH nested (for {#objectifs}) AND flat (direct access) structures
         const dataToRender = {
             annee_pei: classe || '',
             groupe_matiere: matiere || '',
@@ -459,21 +483,20 @@ export default async function handler(req, res) {
             lettre_critere: critere,
             nom_objectif_specifique: criterionData.titre,
             
-            // Arrays for loops in template - MUST match template structure exactly
+            // Provide taches and descripteurs DIRECTLY (not nested)
+            // This avoids the {#objectifs} parent loop that has the closing tag error
             taches: taches,
             descripteurs: descripteurs,
-            objectifs: objectifsArray.map((o, i) => ({ index: i + 1, nom: o, texte: o })),
             
-            // Also provide as text for simple placeholders
-            exercices: exercisesText,
-            objectifs_list: objectifsArray.map(o => `• ${o}`).join('\n')
+            // Text versions for simple placeholders
+            exercices: exercisesText
         };
         
-        console.log('[INFO] Data structure for template:', {
+        console.log('[INFO] Data structure for template (FLAT structure to avoid nesting error):', {
             taches_count: taches.length,
             descripteurs_count: descripteurs.length,
-            objectifs_count: dataToRender.objectifs.length,
-            critere
+            critere,
+            has_objectifs_loop: false
         });
         
         console.log('[INFO] Rendering template with data...');
