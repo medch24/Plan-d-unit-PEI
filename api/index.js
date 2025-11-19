@@ -78,6 +78,8 @@ async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
     const nbUnites = matiere === "Langue et littérature" ? 6 : 4;
     console.log(`[INFO] Generating ${nbUnites} units for ${matiere} - ${classe}`);
     
+    const ressourcesStr = chapitres.map(ch => ch.ressource).filter(Boolean).join(', ') || 'Manuels scolaires, ressources numériques';
+    
     const prompt = `Tu es un expert PEI IB. Génère EXACTEMENT ${nbUnites} unités en regroupant ces chapitres en thèmes cohérents.
 
 Pour chaque unité, fournis:
@@ -102,6 +104,18 @@ IMPORTANT pour objectifs_specifiques_detailles:
    - A.i: "décrire des connaissances scientifiques"
    - A.ii: "appliquer des connaissances scientifiques pour résoudre des problèmes"
    - A.iii: "analyser de l'information pour formuler une explication scientifiquement valable"
+
+NOUVELLES EXIGENCES - Contenu détaillé pour l'enseignement:
+- evaluation_sommative: Un résumé concret et spécifique de l'évaluation sommative qui clôture cette unité (ne pas écrire "Évaluation à définir...", mais décrire une vraie évaluation adaptée à l'unité: type, format, critères évalués)
+- approches_apprentissage: Quelles approches d'apprentissage ATL (Approaches to Learning) seront utilisées pour cette unité ET pourquoi elles sont pertinentes (ex: compétences de pensée critique pour analyser..., compétences de communication pour présenter..., etc.)
+- contenu: Contenu spécifique à développer pour cette unité selon les chapitres et objectifs (concepts clés, théories, exemples concrets)
+- processus_apprentissage: Activités d'apprentissage et stratégies d'enseignement concrètes pour cette unité (minimum 3-4 activités variées: expériences, discussions, projets, etc.)
+- ressources: Mentionner les ressources fournies (${ressourcesStr}) et ajouter des ressources supplémentaires pertinentes
+- differenciation: Stratégies de différenciation spécifiques pour cette unité (soutien pour élèves en difficulté, extensions pour avancés, supports variés)
+- evaluation_formative: Types d'évaluations formatives adaptés à cette unité (observations, quizz, feedback sur travaux, auto-évaluation, etc.)
+- reflexion_avant: Réflexion de planification spécifique à cette unité
+- reflexion_pendant: Points d'attention pendant l'enseignement de cette unité
+- reflexion_apres: Critères d'évaluation de la réussite de cette unité
 
 Matière: ${matiere}
 Année: ${classe}

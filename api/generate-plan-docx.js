@@ -105,16 +105,17 @@ export default async function handler(req, res) {
                 ? (unite?.questions?.debat || unite?.questions_debat).map(q => `• ${q}`).join('\n')
                 : '',
             objectifs_specifiques: objectifsText,
-            evaluation_sommative: unite?.evaluation_sommative || 'Évaluation à définir selon les critères d\'évaluation de la matière.',
-            approches_apprentissage: unite?.approches_apprentissage || 'Compétences développées : pensée critique, communication, autogestion, recherche, compétences sociales.',
-            contenu: unite?.contenu || unite?.processus_apprentissage || 'Contenu à développer en fonction des chapitres et des objectifs spécifiques.',
-            processus_apprentissage: unite?.processus_apprentissage || unite?.contenu || '',
-            ressources: unite?.ressources || 'Manuels scolaires, ressources numériques, matériel de laboratoire (si applicable).',
-            differenciation: unite?.differenciation || 'Adaptation selon les besoins : soutien supplémentaire, extensions pour élèves avancés, supports visuels/audio.',
-            evaluation_formative: unite?.evaluation_formative || 'Observations continues, questionnements, quizz formatifs, rétroaction régulière.',
-            reflexion_avant: unite?.reflexion_avant || 'Préparation des ressources, planification des activités, anticipation des difficultés.',
-            reflexion_pendant: unite?.reflexion_pendant || 'Ajustements selon la progression, gestion du temps, adaptation aux besoins.',
-            reflexion_apres: unite?.reflexion_apres || 'Analyse des résultats, points à améliorer, ajustements pour les prochaines unités.'
+            // Use generated content, warn if using fallback
+            evaluation_sommative: unite?.evaluation_sommative || '[Évaluation sommative non générée - À compléter]',
+            approches_apprentissage: unite?.approches_apprentissage || '[Approches ATL non générées - À compléter]',
+            contenu: unite?.contenu || '[Contenu non généré - À développer selon les chapitres]',
+            processus_apprentissage: unite?.processus_apprentissage || '[Activités non générées - À planifier]',
+            ressources: unite?.ressources || '[Ressources non générées - À lister]',
+            differenciation: unite?.differenciation || '[Stratégies de différenciation non générées - À définir]',
+            evaluation_formative: unite?.evaluation_formative || '[Évaluations formatives non générées - À planifier]',
+            reflexion_avant: unite?.reflexion_avant || '[Réflexion avant non générée]',
+            reflexion_pendant: unite?.reflexion_pendant || '[Réflexion pendant non générée]',
+            reflexion_apres: unite?.reflexion_apres || '[Réflexion après non générée]'
         };
 
         console.log('[INFO] Rendering template with data...');

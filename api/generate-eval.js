@@ -422,26 +422,27 @@ export default async function handler(req, res) {
             });
         });
         
+        // Build descripteurs array for the loop in template
         const descripteurs = [
             { 
                 niveaux: '1-2', 
                 descripteur: criterionData.niveaux['1-2'] || '',
-                descripteurs: criterionData.niveaux['1-2'] || '' // Support both naming conventions
+                descript: criterionData.niveaux['1-2'] || '' // Match template variable name
             },
             { 
                 niveaux: '3-4', 
                 descripteur: criterionData.niveaux['3-4'] || '',
-                descripteurs: criterionData.niveaux['3-4'] || ''
+                descript: criterionData.niveaux['3-4'] || ''
             },
             { 
                 niveaux: '5-6', 
                 descripteur: criterionData.niveaux['5-6'] || '',
-                descripteurs: criterionData.niveaux['5-6'] || ''
+                descript: criterionData.niveaux['5-6'] || ''
             },
             { 
                 niveaux: '7-8', 
                 descripteur: criterionData.niveaux['7-8'] || '',
-                descripteurs: criterionData.niveaux['7-8'] || ''
+                descript: criterionData.niveaux['7-8'] || ''
             }
         ];
         
@@ -458,19 +459,22 @@ export default async function handler(req, res) {
             lettre_critere: critere,
             nom_objectif_specifique: criterionData.titre,
             
-            // Arrays for loops in template
+            // Arrays for loops in template - MUST match template structure exactly
             taches: taches,
             descripteurs: descripteurs,
             objectifs: objectifsArray.map((o, i) => ({ index: i + 1, nom: o, texte: o })),
             
             // Also provide as text for simple placeholders
             exercices: exercisesText,
-            objectifs_list: objectifsArray.map(o => `• ${o}`).join('\n'),
-            descripteur_1_2: criterionData.niveaux['1-2'] || '',
-            descripteur_3_4: criterionData.niveaux['3-4'] || '',
-            descripteur_5_6: criterionData.niveaux['5-6'] || '',
-            descripteur_7_8: criterionData.niveaux['7-8'] || ''
+            objectifs_list: objectifsArray.map(o => `• ${o}`).join('\n')
         };
+        
+        console.log('[INFO] Data structure for template:', {
+            taches_count: taches.length,
+            descripteurs_count: descripteurs.length,
+            objectifs_count: dataToRender.objectifs.length,
+            critere
+        });
         
         console.log('[INFO] Rendering template with data...');
         doc.setData(dataToRender);
