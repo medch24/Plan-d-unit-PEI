@@ -71,6 +71,18 @@ export default async function handler(req, res) {
         });
 
         // 4. Préparer les données pour le template
+        // Format objectifs_specifiques_detailles if available, else fallback to simple list
+        let objectifsText = '';
+        if (Array.isArray(unite?.objectifs_specifiques_detailles)) {
+            objectifsText = unite.objectifs_specifiques_detailles
+                .map(obj => `• ${obj.critere}.${obj.sous_critere}: ${obj.description}`)
+                .join('\n');
+        } else if (Array.isArray(unite?.objectifsSpecifiques || unite?.objectifs_specifiques)) {
+            objectifsText = (unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
+                .map(o => `• ${o}`)
+                .join('\n');
+        }
+        
         const dataToRender = {
             enseignant: enseignant || '',
             groupe_matiere: matiere || '',
@@ -92,9 +104,7 @@ export default async function handler(req, res) {
             questions_debat: Array.isArray(unite?.questions?.debat || unite?.questions_debat)
                 ? (unite?.questions?.debat || unite?.questions_debat).map(q => `• ${q}`).join('\n')
                 : '',
-            objectifs_specifiques: Array.isArray(unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
-                ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques).map(o => `• ${o}`).join('\n')
-                : '',
+            objectifs_specifiques: objectifsText,
             evaluation_sommative: unite?.evaluation_sommative || 'Évaluation à définir selon les critères d\'évaluation de la matière.',
             approches_apprentissage: unite?.approches_apprentissage || 'Compétences développées : pensée critique, communication, autogestion, recherche, compétences sociales.',
             contenu: unite?.contenu || unite?.processus_apprentissage || 'Contenu à développer en fonction des chapitres et des objectifs spécifiques.',
