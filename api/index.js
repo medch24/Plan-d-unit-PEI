@@ -78,7 +78,36 @@ async function generateUnitsWithGemini({ chapitres, matiere, classe }) {
     const nbUnites = matiere === "Langue et littérature" ? 6 : 4;
     console.log(`[INFO] Generating ${nbUnites} units for ${matiere} - ${classe}`);
     
-    const prompt = `Tu es un expert PEI IB. Génère EXACTEMENT ${nbUnites} unités en regroupant ces chapitres en thèmes cohérents. Donne pour chaque unité: titre_unite, chapitres_inclus (index), duree totale estimée (en heures, somme "poids" approx 4h/chapitre si absent), concept_cle, 2-3 concepts_connexes, contexte_mondial, enonce_recherche, 2-3 questions_factuelles, 2-3 questions_conceptuelles, 2-3 questions_debat, objectifs_specifiques (liste d'IDs tels que A.i, B.ii...). Réponds EN JSON strict: {"unites":[{...}]}. Matière: ${matiere}. Année: ${classe}. Chapitres: ${JSON.stringify(chapitres)}.`;
+    const prompt = `Tu es un expert PEI IB. Génère EXACTEMENT ${nbUnites} unités en regroupant ces chapitres en thèmes cohérents.
+
+Pour chaque unité, fournis:
+- titre_unite: titre accrocheur et clair
+- chapitres_inclus: array d'index des chapitres
+- duree: nombre d'heures total estimé pour l'unité (minimum 12h, calculé selon nombre de chapitres × 4h ou plus si nécessaire)
+- concept_cle: un concept clé PEI approprié
+- concepts_connexes: array de 2-3 concepts connexes pertinents
+- contexte_mondial: contexte mondial pertinent
+- enonce_recherche: énoncé de recherche clair et concis
+- questions_factuelles: array de 2-3 questions factuelles
+- questions_conceptuelles: array de 2-3 questions conceptuelles  
+- questions_debat: array de 2-3 questions invitant au débat
+- objectifs_specifiques_detailles: array d'objets avec format:
+  [{"critere": "A", "sous_critere": "i", "description": "de décrire des connaissances scientifiques"}, ...]
+  
+IMPORTANT pour objectifs_specifiques_detailles:
+1. Sélectionne intelligemment les critères (A, B, C, D) selon le contenu de l'unité
+2. Pour chaque critère sélectionné, inclus AU MINIMUM 3 sous-critères parmi i, ii, iii, iv, v
+3. Chaque sous-critère doit avoir sa description complète et précise
+4. Exemple: Pour Sciences critère A, si tu choisis i, ii, iii:
+   - A.i: "décrire des connaissances scientifiques"
+   - A.ii: "appliquer des connaissances scientifiques pour résoudre des problèmes"
+   - A.iii: "analyser de l'information pour formuler une explication scientifiquement valable"
+
+Matière: ${matiere}
+Année: ${classe}
+Chapitres: ${JSON.stringify(chapitres)}
+
+Réponds EN JSON strict: {"unites":[{...}]}`;
 
     let lastError = null;
     

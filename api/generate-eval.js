@@ -82,7 +82,7 @@ async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce
         }
     });
     
-    const prompt = `Tu es un expert en évaluation PEI IB. Génère des exercices pratiques pour évaluer les élèves.
+    const prompt = `Tu es un expert en évaluation PEI IB. Génère des exercices PRATIQUES et DÉTAILLÉS pour évaluer les élèves.
 
 Matière: ${matiere}
 Niveau: ${classe}
@@ -92,35 +92,32 @@ Unité: ${uniteTitle}
 Critères d'évaluation avec sous-critères:
 ${descriptorInfo}
 
-IMPORTANT: Pour CHAQUE sous-critère (i, ii, iii, iv) de CHAQUE critère, génère UN exercice spécifique qui évalue cette compétence particulière.
+IMPORTANT:
+1. Pour CHAQUE sous-critère (i, ii, iii, iv, v) de CHAQUE critère, génère UN EXERCICE SPÉCIFIQUE ET DÉTAILLÉ
+2. Chaque exercice doit:
+   - Être concret et directement réalisable en classe
+   - Contenir des consignes précises et claires (minimum 3-5 phrases)
+   - Permettre d'évaluer spécifiquement le sous-critère visé
+   - Être adapté au niveau ${classe}
+   - Inclure des exemples ou contextes si nécessaire
+   - Permettre d'évaluer les différents niveaux de maîtrise (1-2, 3-4, 5-6, 7-8)
 
-Par exemple, pour le Critère A avec sous-critères i, ii, iii, iv, tu dois générer:
-- Un exercice qui évalue spécifiquement le sous-critère i
-- Un exercice qui évalue spécifiquement le sous-critère ii
-- Un exercice qui évalue spécifiquement le sous-critère iii
-- Un exercice qui évalue spécifiquement le sous-critère iv
-
-Les exercices doivent:
-- Être concrets et réalisables en classe
-- Correspondre au niveau ${classe}
-- Cibler précisément la compétence du sous-critère
-- Permettre d'évaluer les différents niveaux de maîtrise (1-2, 3-4, 5-6, 7-8)
-- Être clairs et sans ambiguïté
+Exemple de format attendu:
+"Exercice A.i (${matiere}): Analysez le phénomène X en identifiant les concepts scientifiques impliqués. Consignes: 1) Listez au moins 3 concepts clés, 2) Expliquez leur rôle dans le phénomène, 3) Fournissez des exemples concrets tirés de situations réelles. Rédigez votre réponse sous forme de paragraphe structuré (200-300 mots)."
 
 Réponds en JSON strict avec cette structure:
 {
   "exercices": {
     "A": {
-      "i": "Exercice pour évaluer le sous-critère A.i",
-      "ii": "Exercice pour évaluer le sous-critère A.ii",
-      "iii": "Exercice pour évaluer le sous-critère A.iii",
-      "iv": "Exercice pour évaluer le sous-critère A.iv"
+      "i": "Exercice détaillé pour évaluer le sous-critère A.i (3-5 phrases minimum)",
+      "ii": "Exercice détaillé pour évaluer le sous-critère A.ii (3-5 phrases minimum)",
+      "iii": "Exercice détaillé pour évaluer le sous-critère A.iii (3-5 phrases minimum)",
+      "iv": "Exercice détaillé pour évaluer le sous-critère A.iv (3-5 phrases minimum)"
     },
     "B": {
-      "i": "Exercice pour évaluer le sous-critère B.i",
+      "i": "Exercice détaillé pour B.i...",
       ...
-    },
-    ...
+    }
   }
 }`;
 
@@ -207,13 +204,57 @@ function parseClasseToKey(classe, matiere) {
     return `pei${normalized}`;
 }
 
+/**
+ * Select intelligent criteria based on unit content and subject
+ */
+function selectIntelligentCriteria(unite, matiere) {
+    // Get detailed objectives if available
+    const detailedObjs = unite?.objectifs_specifiques_detailles || [];
+    
+    if (detailedObjs.length > 0) {
+        // Extract unique criteria from detailed objectives
+        const criteriaSet = new Set(detailedObjs.map(obj => obj.critere));
+        return Array.from(criteriaSet);
+    }
+    
+    // Fallback: parse from simple objectifs_specifiques
+    const simpleObjs = unite?.objectifsSpecifiques || unite?.objectifs_specifiques || [];
+    const criteriaSet = new Set();
+    
+    simpleObjs.forEach(obj => {
+        const match = String(obj).match(/^([A-D])\\./i);
+        if (match) criteriaSet.add(match[1].toUpperCase());
+    });
+    
+    if (criteriaSet.size > 0) return Array.from(criteriaSet);
+    
+    // Default fallback
+    return ["D"];
+}
+
+/**
+ * Get sub-criteria for a criterion from detailed objectives, ensuring minimum 3
+ */
+function getSubCriteriaFromObjectives(unite, critere) {
+    const detailedObjs = unite?.objectifs_specifiques_detailles || [];
+    const subCriteria = {};
+    
+    detailedObjs
+        .filter(obj => obj.critere === critere)
+        .forEach(obj => {
+            subCriteria[obj.sous_critere] = obj.description;
+        });
+    
+    return subCriteria;
+}
+
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).send('Method Not Allowed');
     }
 
     try {
-        const { matiere, classe, unite, criteres = ["D"] } = req.body;
+        const { matiere, classe, unite, criteres: inputCriteres } = req.body;
         
         console.log('[INFO] Generate Eval Request received');
         console.log('[INFO] Environment variables check:', {
@@ -224,8 +265,16 @@ export default async function handler(req, res) {
         
         const classeKey = parseClasseToKey(classe, matiere);
         
-        // Use first criterion if multiple provided
+        // Intelligent criteria selection if not provided
+        let criteres = inputCriteres;
+        if (!criteres || criteres.length === 0) {
+            criteres = selectIntelligentCriteria(unite, matiere);
+            console.log('[INFO] Auto-selected criteria:', criteres);
+        }
+        
+        // Use first criterion if multiple provided (for single eval doc)
         const critere = Array.isArray(criteres) ? criteres[0] : criteres;
+        console.log('[INFO] Generating evaluation for criterion:', critere);
         
         // Get criterion data
         // Try different key formats to find the matching descriptors
@@ -269,8 +318,23 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: `Critère ${critere} non trouvé pour ${matiere} ${classeKey}` });
         }
         
-        // Extract sub-criteria
-        const subCriteria = getAllSubCriteria(criterionData);
+        // Extract sub-criteria from objectives first (more precise), then fallback to descriptor parsing
+        let subCriteria = getSubCriteriaFromObjectives(unite, critere);
+        
+        // If less than 3 sub-criteria from objectives, merge with descriptor extraction
+        const descriptorSubs = getAllSubCriteria(criterionData);
+        if (Object.keys(subCriteria).length < 3) {
+            console.log('[INFO] Less than 3 sub-criteria from objectives, merging with descriptor subs');
+            subCriteria = { ...descriptorSubs, ...subCriteria };
+        }
+        
+        // Ensure minimum 3 sub-criteria
+        const subKeys = Object.keys(subCriteria);
+        if (subKeys.length < 3) {
+            console.warn(`[WARN] Only ${subKeys.length} sub-criteria found for ${critere}, should be minimum 3`);
+        }
+        
+        console.log(`[INFO] Selected ${subKeys.length} sub-criteria for ${critere}:`, subKeys);
         
         // Generate exercises for each sub-criterion
         console.log(`[INFO] 🎯 Generating exercises for criterion ${critere}`);
