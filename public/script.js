@@ -228,6 +228,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const idx = parseInt(btn.getAttribute('data-plan'),10);
             const unite = unites[idx];
             const resp = await fetch('/api/generate-plan-docx', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ enseignant: ctx.enseignant, matiere: ctx.matiere, classe: ctx.classe, unite }) });
+            if (!resp.ok) {
+              try { const err = await resp.json(); alert('Erreur génération plan: ' + (err.error || resp.status)); } catch(_) { alert('Erreur génération plan: ' + resp.status); }
+              return;
+            }
             const blob = await resp.blob();
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Plan_Unite_${Date.now()}.docx`; a.click();
           });
@@ -238,6 +242,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const idx = parseInt(btn.getAttribute('data-eval'),10);
             const unite = unites[idx];
             const resp = await fetch('/api/generate-eval', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ matiere: ctx.matiere, classe: ctx.classe, unite }) });
+            if (!resp.ok) {
+              try { const err = await resp.json(); alert('Erreur génération évaluation: ' + (err.error || resp.status)); } catch(_) { alert('Erreur génération évaluation: ' + resp.status); }
+              return;
+            }
             const blob = await resp.blob();
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
