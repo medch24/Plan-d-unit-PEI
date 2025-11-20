@@ -453,7 +453,7 @@ export default async function handler(req, res) {
         });
         
         // Prepare data structure matching template structure
-        // Template uses loops for tasks and descriptors
+        // Template uses {#taches} loop with {index} and {description} placeholders
         const taches = [];
         Object.entries(subCriteria).forEach(([roman, description]) => {
             const exercise = exercicesGenerated[roman];
@@ -524,8 +524,7 @@ export default async function handler(req, res) {
         });
         
         console.log('[INFO] Rendering template with data...');
-        doc.setData(dataToRender);
-        doc.render();
+        doc.render(dataToRender);
 
         console.log('[INFO] Generating document buffer...');
         const buf = doc.getZip().generate({
