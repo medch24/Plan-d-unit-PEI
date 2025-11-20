@@ -55,13 +55,13 @@ function getAllSubCriteria(criterionData) {
  * Generate exercises for evaluation using Gemini AI
  */
 async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce, criteres, descripteurs }) {
-    if (!GEMINI_API_KEY) {
-        console.error('[ERROR] GEMINI_API_KEY is missing for exercise generation');
-        return { exercices: {}, subCriteria: {} };
+    const useLLM = !!GEMINI_API_KEY;
+    if (!useLLM) {
+        console.warn('[WARN] GEMINI_API_KEY is missing for exercise generation - using rule-based fallback');
     }
     
-    console.log('[INFO] 🎯 Generating exercises with Gemini for criteria:', criteres.join(', '));
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    console.log('[INFO] 🎯 Generating exercises with', useLLM ? 'Gemini' : 'fallback', 'for criteria:', criteres.join(', '));
+    const genAI = useLLM ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
     
     const MODELS_TO_TRY = [
         { name: "gemini-2.5-flash", description: "Gemini 2.5 Flash (primary)" },
@@ -91,6 +91,26 @@ async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce
             });
         }
     });
+    // If LLM unavailable, build rule-based exercises from sub-criteria
+    if (!useLLM) {
+        const defaultExercices = {};
+        criteres.forEach(c => {
+            const subs = allSubCriteria[c] || {};
+            defaultExercices[c] = {};
+            const subKeys = Object.keys(subs);
+            if (subKeys.length === 0) {
+                ['i','ii','iii'].forEach((roman) => {
+                    defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}", réalisez une tâche permettant d'évaluer ce sous-critère. 1) Décrivez la démarche et les notions mobilisées, 2) Appliquez-les à un exemple concret, 3) Justifiez votre choix et vérifiez votre résultat.`;
+                });
+            } else {
+                Object.entries(subs).forEach(([roman, text]) => {
+                    const d = (text || '').replace(/^[ivx]+\./i,'').trim();
+                    defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}" et l'énoncé de recherche "${enonce}", réalisez une production qui démontre: ${d}. Consignes: 1) Situez le problème dans un contexte réel (2-3 phrases), 2) Expliquez la démarche à suivre étape par étape (3-4 phrases), 3) Appliquez vos connaissances pour proposer une solution ou analyse, 4) Justifiez vos choix avec des notions vues en cours, 5) Indiquez comment vous vérifieriez/évalueriez le résultat. Votre production doit permettre d'apprécier les niveaux 1-2, 3-4, 5-6, 7-8.`;
+                });
+            }
+        });
+        return { exercices: defaultExercices, subCriteria: allSubCriteria };
+    }
     
     const prompt = `Tu es un expert en évaluation PEI IB. Génère des exercices PRATIQUES et DÉTAILLÉS pour évaluer les élèves.
 
@@ -168,24 +188,23 @@ Réponds en JSON strict avec cette structure:
         }
     }
     
-    console.warn('[WARN] ⚠️  Exercise generation failed, using default placeholders');
+    console.warn('[WARN] ⚠️  Exercise generation failed, using rule-based fallback');
     
-    // Return default structure with sub-criteria if generation fails
+    // Build detailed exercises from descriptors to avoid empty tasks
     const defaultExercices = {};
     criteres.forEach(c => {
         const subs = allSubCriteria[c] || {};
         defaultExercices[c] = {};
-        
-        if (Object.keys(subs).length > 0) {
-            Object.keys(subs).forEach((roman) => {
-                defaultExercices[c][roman] = `Exercice ${c}.${roman} : Évaluer la compétence "${subs[roman].substring(0, 50)}..." (à compléter par l'enseignant)`;
+        const keys = Object.keys(subs);
+        if (keys.length === 0) {
+            ['i','ii','iii'].forEach((roman) => {
+                defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}", produisez un travail qui démontre le sous-critère. Consignes: 1) Décrivez la démarche et les notions mobilisées, 2) Appliquez-les à un exemple concret, 3) Justifiez vos choix et indiquez comment vous évalueriez la qualité du résultat.`;
             });
         } else {
-            defaultExercices[c] = {
-                i: `Exercice ${c}.i (à compléter)`,
-                ii: `Exercice ${c}.ii (à compléter)`,
-                iii: `Exercice ${c}.iii (à compléter)`
-            };
+            Object.entries(subs).forEach(([roman, text]) => {
+                const d = (text || '').replace(/^[ivx]+\./i,'').trim();
+                defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}" et l'énoncé de recherche "${enonce}", réalisez une production montrant: ${d}. Consignes: 1) Situez le problème dans un contexte réel, 2) Expliquez votre démarche en étapes, 3) Appliquez vos connaissances pour obtenir un résultat analysable, 4) Justifiez et vérifiez votre résultat.`;
+            });
         }
     });
     
