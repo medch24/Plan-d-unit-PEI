@@ -492,14 +492,16 @@ export default async function handler(req, res) {
             : [];
 
         // Template structure: {#objectifs} wraps everything
+        // {#objectifs} is a loop tag - needs to be array for proper iteration
+        // OR a truthy value for single iteration
         // Inside: {groupe_matiere}, {titre_unite}, {objectifs_specifiques}, {enonce_de_recherche}
         //         {lettre_critere}, {nom_objectif_specifique}
         //         {#taches} loop, {#descripteurs} loop
         const dataToRender = {
             annee_pei: classe || '',
             
-            // Main objectifs object containing all nested data
-            objectifs: {
+            // Main objectifs as array with single element (for {#objectifs} loop)
+            objectifs: [{
                 groupe_matiere: matiere || '',
                 titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
                 objectifs_specifiques: objectifs_specifiques_text,
@@ -510,7 +512,7 @@ export default async function handler(req, res) {
                 // Nested loops inside objectifs
                 taches: taches,
                 descripteurs: descripteurs
-            }
+            }]
         };
         
         console.log('[INFO] Data structure for template (NESTED under objectifs):', {
