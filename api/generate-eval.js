@@ -491,31 +491,34 @@ export default async function handler(req, res) {
             ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
             : [];
 
-        // FINAL FIX: Your template has nested structure that's causing the error
-        // We provide BOTH nested (for {#objectifs}) AND flat (direct access) structures
+        // Template structure: {#objectifs} wraps everything
+        // Inside: {groupe_matiere}, {titre_unite}, {objectifs_specifiques}, {enonce_de_recherche}
+        //         {lettre_critere}, {nom_objectif_specifique}
+        //         {#taches} loop, {#descripteurs} loop
         const dataToRender = {
             annee_pei: classe || '',
-            groupe_matiere: matiere || '',
-            titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
-            objectifs_specifiques: objectifs_specifiques_text,
-            enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-            lettre_critere: critere,
-            nom_objectif_specifique: criterionData.titre,
             
-            // Provide taches and descripteurs DIRECTLY (not nested)
-            // This avoids the {#objectifs} parent loop that has the closing tag error
-            taches: taches,
-            descripteurs: descripteurs,
-            
-            // Text versions for simple placeholders
-            exercices: exercisesText
+            // Main objectifs object containing all nested data
+            objectifs: {
+                groupe_matiere: matiere || '',
+                titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+                objectifs_specifiques: objectifs_specifiques_text,
+                enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+                lettre_critere: critere,
+                nom_objectif_specifique: criterionData.titre,
+                
+                // Nested loops inside objectifs
+                taches: taches,
+                descripteurs: descripteurs
+            }
         };
         
-        console.log('[INFO] Data structure for template (FLAT structure to avoid nesting error):', {
+        console.log('[INFO] Data structure for template (NESTED under objectifs):', {
             taches_count: taches.length,
             descripteurs_count: descripteurs.length,
             critere,
-            has_objectifs_loop: false
+            has_objectifs_loop: true,
+            structure: 'objectifs -> { groupe_matiere, titre_unite, taches[], descripteurs[] }'
         });
         
         console.log('[INFO] Rendering template with data...');
