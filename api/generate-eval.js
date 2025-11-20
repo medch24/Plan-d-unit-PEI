@@ -453,7 +453,7 @@ export default async function handler(req, res) {
         });
         
         // Prepare data structure matching template structure
-        // Template uses loops for tasks and descriptors
+        // Template uses {#taches} loop with {index} and {description} placeholders
         const taches = [];
         Object.entries(subCriteria).forEach(([roman, description]) => {
             const exercise = exercicesGenerated[roman];
@@ -491,36 +491,40 @@ export default async function handler(req, res) {
             ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
             : [];
 
-        // FINAL FIX: Your template has nested structure that's causing the error
-        // We provide BOTH nested (for {#objectifs}) AND flat (direct access) structures
+        // Template structure: {#objectifs} wraps everything
+        // {#objectifs} is a loop tag - needs to be array for proper iteration
+        // OR a truthy value for single iteration
+        // Inside: {groupe_matiere}, {titre_unite}, {objectifs_specifiques}, {enonce_de_recherche}
+        //         {lettre_critere}, {nom_objectif_specifique}
+        //         {#taches} loop, {#descripteurs} loop
         const dataToRender = {
             annee_pei: classe || '',
-            groupe_matiere: matiere || '',
-            titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
-            objectifs_specifiques: objectifs_specifiques_text,
-            enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-            lettre_critere: critere,
-            nom_objectif_specifique: criterionData.titre,
             
-            // Provide taches and descripteurs DIRECTLY (not nested)
-            // This avoids the {#objectifs} parent loop that has the closing tag error
-            taches: taches,
-            descripteurs: descripteurs,
-            
-            // Text versions for simple placeholders
-            exercices: exercisesText
+            // Main objectifs as array with single element (for {#objectifs} loop)
+            objectifs: [{
+                groupe_matiere: matiere || '',
+                titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+                objectifs_specifiques: objectifs_specifiques_text,
+                enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+                lettre_critere: critere,
+                nom_objectif_specifique: criterionData.titre,
+                
+                // Nested loops inside objectifs
+                taches: taches,
+                descripteurs: descripteurs
+            }]
         };
         
-        console.log('[INFO] Data structure for template (FLAT structure to avoid nesting error):', {
+        console.log('[INFO] Data structure for template (NESTED under objectifs):', {
             taches_count: taches.length,
             descripteurs_count: descripteurs.length,
             critere,
-            has_objectifs_loop: false
+            has_objectifs_loop: true,
+            structure: 'objectifs -> { groupe_matiere, titre_unite, taches[], descripteurs[] }'
         });
         
         console.log('[INFO] Rendering template with data...');
-        doc.setData(dataToRender);
-        doc.render();
+        doc.render(dataToRender);
 
         console.log('[INFO] Generating document buffer...');
         const buf = doc.getZip().generate({
