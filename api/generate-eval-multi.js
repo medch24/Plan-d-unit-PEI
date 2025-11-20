@@ -368,11 +368,14 @@ export default async function handler(req, res) {
         const criteresStr = criteres.join('_');
         res.setHeader('Content-Disposition', `attachment; filename=Evaluation_Criteres_${criteresStr}_${ts}.docx`);
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-        res.status(200).send(buf);
+        res.statusCode = 200;
+        res.end(buf);
 
     } catch (error) {
         console.error("[ERROR] Multi-criteria eval generation failed:", error);
         console.error("[ERROR] Stack trace:", error.stack);
-        res.status(500).json({ error: `Erreur interne: ${error.message}` });
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ error: `Erreur interne: ${error.message}` }));
     }
 }
