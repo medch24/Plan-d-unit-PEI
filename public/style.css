@@ -208,3 +208,38 @@ header h1 {
     color: #856404;
     font-style: italic;
 }
+
+/* Multi-criteria selector styles */
+#results label {
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    padding: 5px 10px;
+    background-color: white;
+    border: 1px solid #dee2e6;
+    border-radius: 5px;
+    transition: all 0.2s;
+}
+
+#results label:hover {
+    background-color: #e9ecef;
+}
+
+#results input[type="checkbox"] {
+    margin-right: 5px;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+}
+
+#results .btn-generate-multi,
+#results .btn-cancel-multi {
+    padding: 8px 16px;
+    font-size: 14px;
+    width: auto;
+}
+
+#results .btn-primary {
+    width: auto;
+    display: inline-block;
+}
