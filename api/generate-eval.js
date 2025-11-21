@@ -1,12 +1,25 @@
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, HeadingLevel } from 'docx';
+import PizZip from 'pizzip';
+import Docxtemplater from 'docxtemplater';
 import { DESCRIPTEURS_COMPLETS } from './descripteurs-complets.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
-import JSZip from 'jszip';
 
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function pickEnv(...keys){ for(const k of keys){ if(process.env[k]) return process.env[k]; } return ""; }
+const EVAL_TEMPLATE_URL = pickEnv('EVAL_TEMPLATE_URL','Eval_TEMPLATE_URL','EVALUATION_TEMPLATE_URL','Evaluation_TEMPLATE_URL');
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
+// Local fallback template path
+const LOCAL_EVAL_TEMPLATE_PATH = join(__dirname, '..', 'public', 'templates', 'evaluation_template.docx');
+
+// Version: 1.2 - Robust env var handling + better template validation
 /**
- * Extrait les sous-critères des descripteurs
+ * Extract sub-criteria from descriptors (i, ii, iii, iv)
  */
 function extractSubCriteria(descriptorText) {
     if (!descriptorText || typeof descriptorText !== 'string') return {};
@@ -23,7 +36,7 @@ function extractSubCriteria(descriptorText) {
 }
 
 /**
- * Récupère tous les sous-critères pour un critère
+ * Get all sub-criteria for a criterion across all levels
  */
 function getAllSubCriteria(criterionData) {
     if (!criterionData || !criterionData.niveaux) return {};
@@ -39,18 +52,23 @@ function getAllSubCriteria(criterionData) {
 }
 
 /**
- * Génère les exercices avec Gemini AI
+ * Generate exercises for evaluation using Gemini AI
  */
 async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce, criteres, descripteurs }) {
     const useLLM = !!GEMINI_API_KEY;
     if (!useLLM) {
-        console.warn('[WARN] GEMINI_API_KEY manquant - utilisation du fallback');
+        console.warn('[WARN] GEMINI_API_KEY is missing for exercise generation - using rule-based fallback');
     }
     
-    console.log('[INFO] Génération des exercices avec', useLLM ? 'Gemini' : 'fallback');
+    console.log('[INFO] 🎯 Generating exercises with', useLLM ? 'Gemini' : 'fallback', 'for criteria:', criteres.join(', '));
     const genAI = useLLM ? new GoogleGenerativeAI(GEMINI_API_KEY) : null;
     
-    // Extraction des sous-critères
+    const MODELS_TO_TRY = [
+        { name: "gemini-2.5-flash", description: "Gemini 2.5 Flash (primary)" },
+        { name: "gemini-2.0-flash", description: "Gemini 2.0 Flash (fallback 1)" }
+    ];
+    
+    // Extract sub-criteria for each criterion
     const allSubCriteria = {};
     let descriptorInfo = '';
     
@@ -65,19 +83,31 @@ async function generateExercicesWithGemini({ matiere, classe, uniteTitle, enonce
             Object.entries(subs).forEach(([roman, text]) => {
                 descriptorInfo += `  ${roman}. ${text}\n`;
             });
+            descriptorInfo += `\nNiveaux de maîtrise:\n`;
+            Object.entries(desc.niveaux || {}).forEach(([niveau, texte]) => {
+                if (niveau !== '0') {
+                    descriptorInfo += `  Niveau ${niveau}: ${texte.substring(0, 100)}...\n`;
+                }
+            });
         }
     });
-    
-    // Si pas de LLM, générer des exercices par défaut
+    // If LLM unavailable, build rule-based exercises from sub-criteria
     if (!useLLM) {
         const defaultExercices = {};
         criteres.forEach(c => {
             const subs = allSubCriteria[c] || {};
             defaultExercices[c] = {};
-            Object.entries(subs).forEach(([roman, text]) => {
-                const d = (text || '').replace(/^[ivx]+\./i,'').trim();
-                defaultExercices[c][roman] = `En lien avec l'unité "${uniteTitle}" et l'énoncé de recherche "${enonce}", réalisez une production qui démontre: ${d}. Consignes: 1) Situez le problème dans un contexte réel (2-3 phrases), 2) Expliquez la démarche à suivre étape par étape (3-4 phrases), 3) Appliquez vos connaissances pour proposer une solution ou analyse, 4) Justifiez vos choix avec des notions vues en cours, 5) Indiquez comment vous vérifieriez/évalueriez le résultat.`;
-            });
+            const subKeys = Object.keys(subs);
+            if (subKeys.length === 0) {
+                ['i','ii','iii'].forEach((roman) => {
+                    defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}", réalisez une tâche permettant d'évaluer ce sous-critère. 1) Décrivez la démarche et les notions mobilisées, 2) Appliquez-les à un exemple concret, 3) Justifiez votre choix et vérifiez votre résultat.`;
+                });
+            } else {
+                Object.entries(subs).forEach(([roman, text]) => {
+                    const d = (text || '').replace(/^[ivx]+\./i,'').trim();
+                    defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}" et l'énoncé de recherche "${enonce}", réalisez une production qui démontre: ${d}. Consignes: 1) Situez le problème dans un contexte réel (2-3 phrases), 2) Expliquez la démarche à suivre étape par étape (3-4 phrases), 3) Appliquez vos connaissances pour proposer une solution ou analyse, 4) Justifiez vos choix avec des notions vues en cours, 5) Indiquez comment vous vérifieriez/évalueriez le résultat. Votre production doit permettre d'apprécier les niveaux 1-2, 3-4, 5-6, 7-8.`;
+                });
+            }
         });
         return { exercices: defaultExercices, subCriteria: allSubCriteria };
     }
@@ -102,53 +132,88 @@ IMPORTANT:
    - Inclure des exemples ou contextes si nécessaire
    - Permettre d'évaluer les différents niveaux de maîtrise (1-2, 3-4, 5-6, 7-8)
 
+Exemple de format attendu:
+"Exercice A.i (${matiere}): Analysez le phénomène X en identifiant les concepts scientifiques impliqués. Consignes: 1) Listez au moins 3 concepts clés, 2) Expliquez leur rôle dans le phénomène, 3) Fournissez des exemples concrets tirés de situations réelles. Rédigez votre réponse sous forme de paragraphe structuré (200-300 mots)."
+
 Réponds en JSON strict avec cette structure:
 {
   "exercices": {
     "A": {
-      "i": "Exercice détaillé pour A.i (3-5 phrases minimum)",
-      "ii": "Exercice détaillé pour A.ii (3-5 phrases minimum)",
+      "i": "Exercice détaillé pour évaluer le sous-critère A.i (3-5 phrases minimum)",
+      "ii": "Exercice détaillé pour évaluer le sous-critère A.ii (3-5 phrases minimum)",
+      "iii": "Exercice détaillé pour évaluer le sous-critère A.iii (3-5 phrases minimum)",
+      "iv": "Exercice détaillé pour évaluer le sous-critère A.iv (3-5 phrases minimum)"
+    },
+    "B": {
+      "i": "Exercice détaillé pour B.i...",
       ...
     }
   }
 }`;
 
-    try {
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const res = await model.generateContent(prompt);
-        let text = res.response.text();
-        
-        if (text.includes("```")) {
-            const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
-            if (m) text = m[1];
+    let lastError = null;
+    
+    for (const modelConfig of MODELS_TO_TRY) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+            try {
+                console.log(`[INFO] Trying ${modelConfig.name} (attempt ${attempt}/2)...`);
+                const model = genAI.getGenerativeModel({ model: modelConfig.name });
+                const res = await model.generateContent(prompt);
+                let text = res.response.text();
+                
+                if (text.includes("```")) {
+                    const m = text.match(/```(?:json)?\n([\s\S]*?)```/);
+                    if (m) text = m[1];
+                }
+                
+                const json = JSON.parse(text);
+                console.log(`[SUCCESS] ✅ Generated exercises with ${modelConfig.name}`);
+                console.log(`[INFO] Generated ${Object.keys(json.exercices || {}).length} criterion groups`);
+                
+                return {
+                    exercices: json.exercices || {},
+                    subCriteria: allSubCriteria
+                };
+            } catch (error) {
+                lastError = error;
+                console.error(`[ERROR] ❌ Exercise generation attempt ${attempt} failed:`, error.message);
+                
+                if (attempt < 2 && (error.message.includes('503') || error.message.includes('overloaded'))) {
+                    console.log(`[INFO] ⏳ Retrying after delay...`);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                    continue;
+                }
+                break;
+            }
         }
-        
-        const json = JSON.parse(text);
-        console.log(`[SUCCESS] Exercices générés avec Gemini`);
-        
-        return {
-            exercices: json.exercices || {},
-            subCriteria: allSubCriteria
-        };
-    } catch (error) {
-        console.error(`[ERROR] Erreur génération exercices:`, error.message);
-        // Fallback
-        const defaultExercices = {};
-        criteres.forEach(c => {
-            const subs = allSubCriteria[c] || {};
-            defaultExercices[c] = {};
+    }
+    
+    console.warn('[WARN] ⚠️  Exercise generation failed, using rule-based fallback');
+    
+    // Build detailed exercises from descriptors to avoid empty tasks
+    const defaultExercices = {};
+    criteres.forEach(c => {
+        const subs = allSubCriteria[c] || {};
+        defaultExercices[c] = {};
+        const keys = Object.keys(subs);
+        if (keys.length === 0) {
+            ['i','ii','iii'].forEach((roman) => {
+                defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}", produisez un travail qui démontre le sous-critère. Consignes: 1) Décrivez la démarche et les notions mobilisées, 2) Appliquez-les à un exemple concret, 3) Justifiez vos choix et indiquez comment vous évalueriez la qualité du résultat.`;
+            });
+        } else {
             Object.entries(subs).forEach(([roman, text]) => {
                 const d = (text || '').replace(/^[ivx]+\./i,'').trim();
-                defaultExercices[c][roman] = `En lien avec l'unité "${uniteTitle}", réalisez une production montrant: ${d}.`;
+                defaultExercices[c][roman] = `Exercice ${c}.${roman} (${matiere} - ${classe}): En lien avec l'unité "${uniteTitle}" et l'énoncé de recherche "${enonce}", réalisez une production montrant: ${d}. Consignes: 1) Situez le problème dans un contexte réel, 2) Expliquez votre démarche en étapes, 3) Appliquez vos connaissances pour obtenir un résultat analysable, 4) Justifiez et vérifiez votre résultat.`;
             });
-        });
-        return { exercices: defaultExercices, subCriteria: allSubCriteria };
-    }
+        }
+    });
+    
+    return {
+        exercices: defaultExercices,
+        subCriteria: allSubCriteria
+    };
 }
 
-/**
- * Parse la classe au format clé
- */
 function parseClasseToKey(classe, matiere) {
     const normalized = (classe || "").toString().toLowerCase().replaceAll(" ", "");
     
@@ -169,419 +234,47 @@ function parseClasseToKey(classe, matiere) {
 }
 
 /**
- * Sélection intelligente des critères
+ * Select intelligent criteria based on unit content and subject
  */
 function selectIntelligentCriteria(unite, matiere) {
+    // Get detailed objectives if available
     const detailedObjs = unite?.objectifs_specifiques_detailles || [];
     
     if (detailedObjs.length > 0) {
+        // Extract unique criteria from detailed objectives
         const criteriaSet = new Set(detailedObjs.map(obj => obj.critere));
         return Array.from(criteriaSet);
     }
     
+    // Fallback: parse from simple objectifs_specifiques
     const simpleObjs = unite?.objectifsSpecifiques || unite?.objectifs_specifiques || [];
     const criteriaSet = new Set();
     
     simpleObjs.forEach(obj => {
-        const match = String(obj).match(/^([A-D])\./i);
+        const match = String(obj).match(/^([A-D])\\./i);
         if (match) criteriaSet.add(match[1].toUpperCase());
     });
     
     if (criteriaSet.size > 0) return Array.from(criteriaSet);
     
+    // Default fallback
     return ["D"];
 }
 
 /**
- * Crée une cellule de tableau
+ * Get sub-criteria for a criterion from detailed objectives, ensuring minimum 3
  */
-function createTableCell(text, options = {}) {
-    return new TableCell({
-        children: [new Paragraph({
-            children: [new TextRun({
-                text: text,
-                bold: options.bold || false,
-                size: options.size || 20
-            })],
-            alignment: options.alignment || AlignmentType.LEFT
-        })],
-        width: options.width || { size: 100, type: WidthType.AUTO },
-        margins: {
-            top: 100,
-            bottom: 100,
-            left: 100,
-            right: 100
-        }
-    });
-}
-
-/**
- * Crée le document Word avec le format exact demandé
- */
-function createEvaluationDocument(data) {
-    const {
-        annee_pei,
-        groupe_matiere,
-        titre_unite,
-        lettre_critere,
-        nom_objectif_specifique,
-        enonce_de_recherche,
-        sous_criteres,
-        descripteurs,
-        exercices
-    } = data;
+function getSubCriteriaFromObjectives(unite, critere) {
+    const detailedObjs = unite?.objectifs_specifiques_detailles || [];
+    const subCriteria = {};
     
-    const sections = [];
+    detailedObjs
+        .filter(obj => obj.critere === critere)
+        .forEach(obj => {
+            subCriteria[obj.sous_critere] = obj.description;
+        });
     
-    // ===== EN-TÊTE =====
-    sections.push(
-        new Paragraph({
-            children: [
-                new TextRun({
-                    text: "Nom et prénom : ………….……. ",
-                    size: 22
-                }),
-                new TextRun({
-                    text: `Classe: ${annee_pei}`,
-                    bold: true,
-                    size: 22
-                })
-            ],
-            spacing: { after: 200 }
-        })
-    );
-    
-    sections.push(new Paragraph({ text: "", spacing: { after: 100 } }));
-    
-    // ===== TITRE =====
-    sections.push(
-        new Paragraph({
-            children: [
-                new TextRun({
-                    text: `Évaluation de ${groupe_matiere} (Unité ${titre_unite})`,
-                    bold: true,
-                    size: 28
-                })
-            ],
-            heading: HeadingLevel.HEADING_2,
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 200, after: 200 }
-        })
-    );
-    
-    // ===== CRITÈRE =====
-    sections.push(
-        new Paragraph({
-            children: [
-                new TextRun({
-                    text: `(Critère ${lettre_critere})`,
-                    bold: true,
-                    size: 22
-                })
-            ],
-            spacing: { after: 100 }
-        })
-    );
-    
-    sections.push(
-        new Paragraph({
-            children: [
-                new TextRun({
-                    text: `Énoncé de recherche : ${enonce_de_recherche}`,
-                    size: 22
-                })
-            ],
-            spacing: { after: 300 }
-        })
-    );
-    
-    // ===== TABLEAU 1 =====
-    sections.push(
-        new Paragraph({
-            children: [new TextRun({ text: "Tableau 1:", bold: true, size: 22 })],
-            spacing: { after: 100 }
-        })
-    );
-    
-    const table1 = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: {
-            top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "000000" }
-        },
-        rows: [
-            new TableRow({
-                children: [
-                    createTableCell(`Critère ${lettre_critere}`, { bold: true }),
-                    createTableCell("Nom de critère", { bold: true }),
-                    createTableCell("Note /8", { bold: true })
-                ]
-            }),
-            new TableRow({
-                children: [
-                    createTableCell(lettre_critere),
-                    createTableCell(nom_objectif_specifique),
-                    createTableCell("")
-                ]
-            })
-        ]
-    });
-    
-    sections.push(table1);
-    sections.push(new Paragraph({ text: "", spacing: { after: 200 } }));
-    
-    // ===== TEXTE EXPLICATIF =====
-    sections.push(
-        new Paragraph({
-            children: [
-                new TextRun({
-                    text: `Les apprenants seront évalués sur le critère ${lettre_critere} (${nom_objectif_specifique}) et ils seront capables de :`,
-                    size: 22
-                })
-            ],
-            spacing: { after: 300 }
-        })
-    );
-    
-    // ===== TABLEAU 2 =====
-    sections.push(
-        new Paragraph({
-            children: [new TextRun({ text: "Tableau 2 :", bold: true, size: 22 })],
-            spacing: { after: 100 }
-        })
-    );
-    
-    const table2Rows = [
-        new TableRow({
-            children: [
-                createTableCell(`Critère ${lettre_critere}`, { bold: true }),
-                createTableCell("1-2", { bold: true, alignment: AlignmentType.CENTER }),
-                createTableCell("3-4", { bold: true, alignment: AlignmentType.CENTER }),
-                createTableCell("5-6", { bold: true, alignment: AlignmentType.CENTER }),
-                createTableCell("7-8", { bold: true, alignment: AlignmentType.CENTER })
-            ]
-        })
-    ];
-    
-    // Ajouter une ligne pour chaque sous-critère
-    sous_criteres.forEach(sc => {
-        table2Rows.push(
-            new TableRow({
-                children: [
-                    createTableCell(`${sc.roman} : ${sc.nom}`),
-                    createTableCell(""),
-                    createTableCell(""),
-                    createTableCell(""),
-                    createTableCell("")
-                ]
-            })
-        );
-    });
-    
-    const table2 = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: {
-            top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "000000" }
-        },
-        rows: table2Rows
-    });
-    
-    sections.push(table2);
-    sections.push(new Paragraph({ text: "", spacing: { after: 200 } }));
-    
-    // ===== TABLEAU 3 =====
-    sections.push(
-        new Paragraph({
-            children: [new TextRun({ text: "Tableau 3 : Descripteurs de niveaux", bold: true, size: 22 })],
-            spacing: { after: 100 }
-        })
-    );
-    
-    const table3 = new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        borders: {
-            top: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            bottom: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            left: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            right: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "000000" },
-            insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "000000" }
-        },
-        rows: [
-            new TableRow({
-                children: [
-                    createTableCell("Niveau", { bold: true, width: { size: 15, type: WidthType.PERCENTAGE } }),
-                    createTableCell("Descripteurs de niveaux", { bold: true, width: { size: 85, type: WidthType.PERCENTAGE } })
-                ]
-            }),
-            ...descripteurs.map(desc => 
-                new TableRow({
-                    children: [
-                        createTableCell(desc.niveaux),
-                        createTableCell(desc.descripteur)
-                    ]
-                })
-            )
-        ]
-    });
-    
-    sections.push(table3);
-    sections.push(new Paragraph({ text: "", spacing: { after: 400 } }));
-    sections.push(new Paragraph({ text: "", pageBreakBefore: true }));
-    
-    // ===== EXERCICES =====
-    sections.push(
-        new Paragraph({
-            children: [new TextRun({ text: "Exercices", bold: true, size: 28 })],
-            heading: HeadingLevel.HEADING_2,
-            spacing: { after: 300 }
-        })
-    );
-    
-    exercices.forEach((ex, idx) => {
-        // Titre de l'exercice
-        sections.push(
-            new Paragraph({
-                children: [
-                    new TextRun({
-                        text: `Exercice ${idx + 1} : `,
-                        bold: true,
-                        size: 24
-                    }),
-                    new TextRun({
-                        text: ex.description,
-                        size: 24
-                    })
-                ],
-                spacing: { after: 100 }
-            })
-        );
-        
-        // Sous-critère
-        sections.push(
-            new Paragraph({
-                children: [new TextRun({ 
-                    text: `${ex.index} (${ex.nom_sous_critere})`,
-                    italic: true,
-                    size: 20 
-                })],
-                spacing: { after: 200 }
-            })
-        );
-        
-        // Espace réponse
-        sections.push(
-            new Paragraph({
-                children: [new TextRun({ text: "(espace pour la réponse)", size: 20, italics: true })],
-                spacing: { after: 100 }
-            })
-        );
-        
-        for (let i = 0; i < 5; i++) {
-            sections.push(
-                new Paragraph({
-                    children: [new TextRun({ text: "_".repeat(100), size: 20 })],
-                    spacing: { after: 50 }
-                })
-            );
-        }
-        
-        sections.push(new Paragraph({ text: "", spacing: { after: 300 } }));
-    });
-    
-    // Créer le document
-    const doc = new Document({
-        sections: [{
-            properties: {},
-            children: sections
-        }]
-    });
-    
-    return doc;
-}
-
-/**
- * Génère un document d'évaluation pour un critère spécifique
- */
-async function generateDocumentForCritere({
-    critere,
-    matiere,
-    classe,
-    classeKey,
-    unite,
-    yearData,
-    criterionData
-}) {
-    // Extraire les sous-critères
-    const subCriteria = getAllSubCriteria(criterionData);
-    
-    console.log(`[INFO] ${Object.keys(subCriteria).length} sous-critères trouvés pour ${critere}`);
-    
-    // Générer les exercices
-    const exerciseResult = await generateExercicesWithGemini({
-        matiere,
-        classe: classeKey,
-        uniteTitle: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
-        enonce: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-        criteres: [critere],
-        descripteurs: { [critere]: criterionData }
-    });
-    
-    const exercicesGenerated = exerciseResult.exercices[critere] || {};
-    
-    // Préparer les données pour le document
-    const sousCriteres = Object.entries(subCriteria).map(([roman, nom]) => ({
-        roman: roman,
-        nom: nom
-    }));
-    
-    const descripteurs = [
-        { niveaux: '1-2', descripteur: criterionData.niveaux['1-2'] || '' },
-        { niveaux: '3-4', descripteur: criterionData.niveaux['3-4'] || '' },
-        { niveaux: '5-6', descripteur: criterionData.niveaux['5-6'] || '' },
-        { niveaux: '7-8', descripteur: criterionData.niveaux['7-8'] || '' }
-    ];
-    
-    const exercices = Object.entries(subCriteria).map(([roman, nom]) => ({
-        index: `${critere}.${roman}`,
-        nom_sous_critere: nom,
-        description: exercicesGenerated[roman] || `[À compléter par l'enseignant]`
-    }));
-    
-    const documentData = {
-        annee_pei: classe || '',
-        groupe_matiere: matiere || '',
-        titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
-        lettre_critere: critere,
-        nom_objectif_specifique: criterionData.titre,
-        enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-        sous_criteres: sousCriteres,
-        descripteurs: descripteurs,
-        exercices: exercices
-    };
-    
-    console.log(`[INFO] Création du document Word pour critère ${critere}...`);
-    const doc = createEvaluationDocument(documentData);
-    
-    console.log(`[INFO] Génération du buffer pour critère ${critere}...`);
-    const buffer = await Packer.toBuffer(doc);
-    
-    console.log(`[INFO] Document ${critere} généré avec succès, taille: ${buffer.length}`);
-    
-    return {
-        critere,
-        buffer,
-        filename: `Evaluation_${critere}_${Date.now()}.docx`
-    };
+    return subCriteria;
 }
 
 export default async function handler(req, res) {
@@ -593,33 +286,51 @@ export default async function handler(req, res) {
         const { matiere, classe, unite, criteres: inputCriteres } = req.body;
         
         console.log('[INFO] Generate Eval Request received');
+        console.log('[INFO] Environment variables check:', {
+            hasTemplateUrl: !!EVAL_TEMPLATE_URL,
+            templateUrlLength: EVAL_TEMPLATE_URL?.length || 0,
+            hasGeminiKey: !!GEMINI_API_KEY
+        });
         
         const classeKey = parseClasseToKey(classe, matiere);
         
-        // Sélection intelligente des critères depuis l'unité
+        // Intelligent criteria selection if not provided
         let criteres = inputCriteres;
         if (!criteres || criteres.length === 0) {
             criteres = selectIntelligentCriteria(unite, matiere);
-            console.log('[INFO] Critères auto-sélectionnés depuis l\'unité:', criteres);
+            console.log('[INFO] Auto-selected criteria:', criteres);
         }
         
-        console.log(`[INFO] Génération de ${criteres.length} document(s) - un par critère`);
+        // Use first criterion if multiple provided (for single eval doc)
+        const critere = Array.isArray(criteres) ? criteres[0] : criteres;
+        console.log('[INFO] Generating evaluation for criterion:', critere);
         
-        // Récupérer les données de la matière
+        // Get criterion data
+        // Try different key formats to find the matching descriptors
         const matiereNormalized = (matiere || "").toLowerCase();
         let pool = DESCRIPTEURS_COMPLETS[matiereNormalized] || 
                    DESCRIPTEURS_COMPLETS[matiereNormalized.replace(/\s+/g, '_')] ||
                    DESCRIPTEURS_COMPLETS[matiereNormalized.replace(/\s+/g, '-')] ||
-                   DESCRIPTEURS_COMPLETS[matiere];
+                   DESCRIPTEURS_COMPLETS[matiere]; // Try original case
         
         if (!pool) {
+            console.error('[ERROR] Matière non trouvée:', matiere);
+            console.error('[ERROR] Clés disponibles:', Object.keys(DESCRIPTEURS_COMPLETS));
             return res.status(400).json({ 
                 error: `Matière non trouvée: ${matiere}`,
-                availableMatiers: Object.keys(DESCRIPTEURS_COMPLETS)
+                availableMatiers: Object.keys(DESCRIPTEURS_COMPLETS),
+                triedKeys: [
+                    matiereNormalized,
+                    matiereNormalized.replace(/\s+/g, '_'),
+                    matiereNormalized.replace(/\s+/g, '-'),
+                    matiere
+                ]
             });
         }
         
-        // Déterminer le niveau PEI
+        console.log('[INFO] Matière trouvée:', matiere, '-> Key used:', matiereNormalized);
+        
+        // Determine PEI level
         let peiLevel = 'pei1';
         if (classeKey.includes('1') || classeKey.includes('2')) peiLevel = 'pei1';
         else if (classeKey.includes('3') || classeKey.includes('4')) peiLevel = 'pei3';
@@ -631,94 +342,206 @@ export default async function handler(req, res) {
             yearData = pool[refLevel];
         }
         
-        // Si un seul critère, générer directement
-        if (criteres.length === 1) {
-            const critere = criteres[0];
-            console.log(`[INFO] Génération pour le critère: ${critere}`);
-            
-            const criterionData = yearData?.[critere];
-            if (!criterionData) {
-                return res.status(400).json({ error: `Critère ${critere} non trouvé` });
+        const criterionData = yearData?.[critere];
+        if (!criterionData) {
+            return res.status(400).json({ error: `Critère ${critere} non trouvé pour ${matiere} ${classeKey}` });
+        }
+        
+        // Extract sub-criteria from objectives first (more precise), then fallback to descriptor parsing
+        let subCriteria = getSubCriteriaFromObjectives(unite, critere);
+        
+        // If less than 3 sub-criteria from objectives, merge with descriptor extraction
+        const descriptorSubs = getAllSubCriteria(criterionData);
+        if (Object.keys(subCriteria).length < 3) {
+            console.log('[INFO] Less than 3 sub-criteria from objectives, merging with descriptor subs');
+            subCriteria = { ...descriptorSubs, ...subCriteria };
+        }
+        
+        // Ensure minimum 3 sub-criteria
+        const subKeys = Object.keys(subCriteria);
+        if (subKeys.length < 3) {
+            console.warn(`[WARN] Only ${subKeys.length} sub-criteria found for ${critere}, should be minimum 3`);
+        }
+        
+        console.log(`[INFO] Selected ${subKeys.length} sub-criteria for ${critere}:`, subKeys);
+        
+        // Generate exercises for each sub-criterion
+        console.log(`[INFO] 🎯 Generating exercises for criterion ${critere}`);
+        
+        const exerciseResult = await generateExercicesWithGemini({
+            matiere,
+            classe: classeKey,
+            uniteTitle: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+            enonce: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+            criteres: [critere],
+            descripteurs: { [critere]: criterionData }
+        });
+        
+        const exercicesGenerated = exerciseResult.exercices[critere] || {};
+        
+        // Format exercises with sub-criteria
+        let exercisesText = '';
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+            exercisesText += `\n${critere}.${roman}) ${description}\n`;
+            const exercise = exercicesGenerated[roman];
+            if (exercise) {
+                exercisesText += `Exercice: ${exercise}\n`;
+            } else {
+                exercisesText += `Exercice: [À compléter par l'enseignant]\n`;
             }
-            
-            const result = await generateDocumentForCritere({
-                critere,
-                matiere,
-                classe,
-                classeKey,
-                unite,
-                yearData,
-                criterionData
-            });
-            
-            // Envoyer le fichier
-            res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
-            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-            res.status(200).send(result.buffer);
-            
-        } else {
-            // PLUSIEURS CRITÈRES : Générer un ZIP avec tous les documents
-            console.log(`[INFO] Génération de ${criteres.length} documents dans un ZIP`);
-            
-            const zip = new JSZip();
-            const documents = [];
-            
-            // Générer un document pour chaque critère
-            for (const critere of criteres) {
-                console.log(`[INFO] Génération du document pour critère ${critere}...`);
-                
-                const criterionData = yearData?.[critere];
-                if (!criterionData) {
-                    console.warn(`[WARN] Critère ${critere} non trouvé, ignoré`);
-                    continue;
+        });
+        
+        // Format objectifs_specifiques with full sub-criteria
+        let objectifs_specifiques_text = 'Sous-critères évalués:\n';
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+            objectifs_specifiques_text += `${roman}. ${description}\n`;
+        });
+        
+        // Try to load template: URL first, then local fallback
+        let templateArrayBuffer;
+        const templateUrl = EVAL_TEMPLATE_URL;
+        
+        if (templateUrl) {
+            try {
+                console.log(`[INFO] Téléchargement du modèle depuis ${templateUrl}`);
+                const response = await fetch(templateUrl, { redirect: 'follow' });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
-                
-                try {
-                    const result = await generateDocumentForCritere({
-                        critere,
-                        matiere,
-                        classe,
-                        classeKey,
-                        unite,
-                        yearData,
-                        criterionData
-                    });
-                    
-                    documents.push(result);
-                    zip.file(result.filename, result.buffer);
-                    
-                } catch (error) {
-                    console.error(`[ERROR] Erreur lors de la génération du critère ${critere}:`, error.message);
-                    // Continue avec les autres critères
+                const ct = response.headers.get('content-type') || '';
+                if (!ct.includes('officedocument.wordprocessingml.document')){
+                    throw new Error(`Invalid content-type: ${ct}`);
                 }
+                templateArrayBuffer = await response.arrayBuffer();
+                console.log(`[INFO] Template downloaded from URL, size: ${templateArrayBuffer.byteLength} bytes`);
+                
+                if (templateArrayBuffer.byteLength === 0) {
+                    throw new Error('Template is empty');
+                }
+            } catch (urlError) {
+                console.warn('[WARN] Failed to load template from URL:', urlError.message);
+                console.log('[INFO] Falling back to local template...');
+                templateArrayBuffer = null;
             }
-            
-            if (documents.length === 0) {
-                return res.status(400).json({ 
-                    error: 'Aucun document généré. Vérifiez les critères fournis.',
-                    criteres: criteres
+        }
+        
+        // Fallback to local template if URL failed or not configured
+        if (!templateArrayBuffer) {
+            try {
+                console.log(`[INFO] Loading local template from ${LOCAL_EVAL_TEMPLATE_PATH}`);
+                const localBuffer = readFileSync(LOCAL_EVAL_TEMPLATE_PATH);
+                templateArrayBuffer = localBuffer.buffer.slice(localBuffer.byteOffset, localBuffer.byteOffset + localBuffer.byteLength);
+                console.log(`[INFO] Local template loaded, size: ${templateArrayBuffer.byteLength} bytes`);
+            } catch (localError) {
+                console.error('[ERROR] Failed to load local template:', localError.message);
+                return res.status(500).json({ 
+                    error: 'Impossible de charger le template (URL et local ont échoué)',
+                    details: localError.message
                 });
             }
-            
-            console.log(`[INFO] ${documents.length} documents générés, création du ZIP...`);
-            
-            const zipBuffer = await zip.generateAsync({ 
-                type: 'nodebuffer',
-                compression: 'DEFLATE',
-                compressionOptions: { level: 9 }
-            });
-            
-            console.log(`[INFO] ZIP créé avec succès, taille: ${zipBuffer.length}`);
-            
-            // Envoyer le ZIP
-            const ts = Date.now();
-            res.setHeader('Content-Disposition', `attachment; filename=Evaluations_${ts}.zip`);
-            res.setHeader('Content-Type', 'application/zip');
-            res.status(200).send(zipBuffer);
         }
+        
+        // Fill template with docxtemplater
+        const zip = new PizZip(Buffer.from(templateArrayBuffer));
+        const doc = new Docxtemplater(zip, {
+            paragraphLoop: true,
+            linebreaks: true,
+            nullGetter: (part) => {
+                console.warn(`⚠️  Missing placeholder in template: ${part.value}`);
+                return '';
+            }
+        });
+        
+        // Prepare data structure matching template structure
+        // Template uses {#taches} loop with {index} and {description} placeholders
+        const taches = [];
+        Object.entries(subCriteria).forEach(([roman, description]) => {
+            const exercise = exercicesGenerated[roman];
+            taches.push({
+                index: `${critere}.${roman}`,
+                description: exercise || `[À compléter par l'enseignant pour ${critere}.${roman}]`
+            });
+        });
+        
+        // Build descripteurs array for the loop in template
+        const descripteurs = [
+            { 
+                niveaux: '1-2', 
+                descripteur: criterionData.niveaux['1-2'] || '',
+                descript: criterionData.niveaux['1-2'] || '' // Match template variable name
+            },
+            { 
+                niveaux: '3-4', 
+                descripteur: criterionData.niveaux['3-4'] || '',
+                descript: criterionData.niveaux['3-4'] || ''
+            },
+            { 
+                niveaux: '5-6', 
+                descripteur: criterionData.niveaux['5-6'] || '',
+                descript: criterionData.niveaux['5-6'] || ''
+            },
+            { 
+                niveaux: '7-8', 
+                descripteur: criterionData.niveaux['7-8'] || '',
+                descript: criterionData.niveaux['7-8'] || ''
+            }
+        ];
+        
+        const objectifsArray = Array.isArray(unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
+            ? (unite?.objectifsSpecifiques || unite?.objectifs_specifiques)
+            : [];
+
+        // Template structure: {#objectifs} wraps everything
+        // {#objectifs} is a loop tag - needs to be array for proper iteration
+        // OR a truthy value for single iteration
+        // Inside: {groupe_matiere}, {titre_unite}, {objectifs_specifiques}, {enonce_de_recherche}
+        //         {lettre_critere}, {nom_objectif_specifique}
+        //         {#taches} loop, {#descripteurs} loop
+        const dataToRender = {
+            annee_pei: classe || '',
+            
+            // Main objectifs as array with single element (for {#objectifs} loop)
+            objectifs: [{
+                groupe_matiere: matiere || '',
+                titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+                objectifs_specifiques: objectifs_specifiques_text,
+                enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+                lettre_critere: critere,
+                nom_objectif_specifique: criterionData.titre,
+                
+                // Nested loops inside objectifs
+                taches: taches,
+                descripteurs: descripteurs
+            }]
+        };
+        
+        console.log('[INFO] Data structure for template (NESTED under objectifs):', {
+            taches_count: taches.length,
+            descripteurs_count: descripteurs.length,
+            critere,
+            has_objectifs_loop: true,
+            structure: 'objectifs -> { groupe_matiere, titre_unite, taches[], descripteurs[] }'
+        });
+        
+        console.log('[INFO] Rendering template with data...');
+        doc.render(dataToRender);
+
+        console.log('[INFO] Generating document buffer...');
+        const buf = doc.getZip().generate({
+            type: 'nodebuffer',
+            compression: 'DEFLATE',
+        });
+
+        console.log('[INFO] Document generated successfully, size:', buf.length);
+
+        // Send file
+        const ts = Date.now();
+        res.setHeader('Content-Disposition', `attachment; filename=Evaluation_${ts}.docx`);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.status(200).send(buf);
 
     } catch (error) {
-        console.error("Erreur lors de la génération:", error);
+        console.error("Erreur lors de la génération du DOCX d'évaluation:", error);
         console.error("Stack trace:", error.stack);
         res.status(500).json({ error: `Erreur interne: ${error.message}` });
     }
