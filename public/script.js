@@ -191,9 +191,23 @@ document.addEventListener('DOMContentLoaded', () => {
             const q = unit.questions || {}; const qsF=(q.factuelles||unit.questions_factuelles||[]); const qsC=(q.conceptuelles||unit.questions_conceptuelles||[]); const qsD=(q.debat||unit.questions_debat||[]);
             html += `
                 <div class="unit-plan">
-                    <div style="padding:10px; text-align:right; display:flex; gap:8px; justify-content:flex-end">
+                    <div style="padding:10px; text-align:right; display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
                       <button class="btn-secondary" data-plan="${index}">Exporter le plan (Word)</button>
-                      <button class="btn-secondary" data-eval="${index}">Générer l'évaluation critériée</button>
+                      <button class="btn-secondary" data-eval="${index}">Générer l'évaluation critériée (ancien)</button>
+                      <button class="btn-primary" data-eval-multi="${index}" style="font-weight:bold;">📝 Évaluation Multi-Critères</button>
+                    </div>
+                    <div id="criteria-selector-${index}" class="hidden" style="padding:10px; background:#f8f9fa; border-radius:5px; margin:10px;">
+                      <p style="margin:0 0 10px 0; font-weight:bold;">Sélectionnez les critères à évaluer:</p>
+                      <div style="display:flex; gap:15px; flex-wrap:wrap;">
+                        <label><input type="checkbox" class="critere-checkbox" data-unit="${index}" value="A" checked> Critère A (Connaissances)</label>
+                        <label><input type="checkbox" class="critere-checkbox" data-unit="${index}" value="B"> Critère B (Recherche)</label>
+                        <label><input type="checkbox" class="critere-checkbox" data-unit="${index}" value="C"> Critère C (Traitement)</label>
+                        <label><input type="checkbox" class="critere-checkbox" data-unit="${index}" value="D"> Critère D (Réflexion)</label>
+                      </div>
+                      <div style="margin-top:10px; display:flex; gap:8px;">
+                        <button class="btn-primary btn-generate-multi" data-unit="${index}">✅ Générer l'évaluation</button>
+                        <button class="btn-secondary btn-cancel-multi" data-unit="${index}">❌ Annuler</button>
+                      </div>
                     </div>
                     <table>
                         <tr class="header-row"><td colspan="2">Plan de travail de l'unité PEI - Unité ${index + 1}</td></tr>
@@ -236,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `Plan_Unite_${Date.now()}.docx`; a.click();
           });
         });
-        // Eval buttons
+        // Eval buttons (old single-criterion)
         resultsDiv.querySelectorAll('[data-eval]').forEach(btn=>{
           btn.addEventListener('click', async ()=>{
             const idx = parseInt(btn.getAttribute('data-eval'),10);
@@ -251,6 +265,88 @@ document.addEventListener('DOMContentLoaded', () => {
             a.href = URL.createObjectURL(blob);
             a.download = `Evaluation_${Date.now()}.docx`;
             a.click();
+          });
+        });
+        
+        // NEW: Multi-criteria eval buttons - show criteria selector
+        resultsDiv.querySelectorAll('[data-eval-multi]').forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const idx = parseInt(btn.getAttribute('data-eval-multi'),10);
+            const selector = document.getElementById(`criteria-selector-${idx}`);
+            if (selector) {
+              selector.classList.toggle('hidden');
+            }
+          });
+        });
+        
+        // NEW: Generate multi-criteria evaluation
+        resultsDiv.querySelectorAll('.btn-generate-multi').forEach(btn=>{
+          btn.addEventListener('click', async ()=>{
+            const idx = parseInt(btn.getAttribute('data-unit'),10);
+            const unite = unites[idx];
+            
+            // Get selected criteria
+            const checkboxes = document.querySelectorAll(`.critere-checkbox[data-unit="${idx}"]:checked`);
+            const criteres = Array.from(checkboxes).map(cb => cb.value);
+            
+            if (criteres.length === 0) {
+              alert('⚠️ Veuillez sélectionner au moins un critère');
+              return;
+            }
+            
+            console.log('[INFO] Generating multi-criteria eval for:', criteres.join(', '));
+            
+            // Show loading
+            btn.disabled = true;
+            btn.textContent = '⏳ Génération en cours...';
+            
+            try {
+              const resp = await fetch('/api/generate-eval-multi', { 
+                method:'POST', 
+                headers:{'Content-Type':'application/json'}, 
+                body: JSON.stringify({ 
+                  matiere: ctx.matiere, 
+                  classe: ctx.classe, 
+                  unite,
+                  criteres 
+                }) 
+              });
+              
+              if (!resp.ok) {
+                try { 
+                  const err = await resp.json(); 
+                  alert('❌ Erreur génération évaluation multi-critères: ' + (err.error || resp.status)); 
+                } catch(_) { 
+                  alert('❌ Erreur génération évaluation multi-critères: ' + resp.status); 
+                }
+                return;
+              }
+              
+              const blob = await resp.blob();
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(blob);
+              a.download = `Evaluation_Multi_Criteres_${criteres.join('_')}_${Date.now()}.docx`;
+              a.click();
+              
+              // Hide selector
+              document.getElementById(`criteria-selector-${idx}`).classList.add('hidden');
+              alert('✅ Évaluation multi-critères générée avec succès!');
+              
+            } catch(error) {
+              console.error('[ERROR]', error);
+              alert('❌ Erreur: ' + error.message);
+            } finally {
+              btn.disabled = false;
+              btn.textContent = '✅ Générer l\'évaluation';
+            }
+          });
+        });
+        
+        // NEW: Cancel multi-criteria selection
+        resultsDiv.querySelectorAll('.btn-cancel-multi').forEach(btn=>{
+          btn.addEventListener('click', ()=>{
+            const idx = parseInt(btn.getAttribute('data-unit'),10);
+            document.getElementById(`criteria-selector-${idx}`).classList.add('hidden');
           });
         });
     }

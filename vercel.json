@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/generate-plan-docx", "destination": "/api/generate-plan-docx.js" },
+    { "source": "/api/generate-eval-multi", "destination": "/api/generate-eval-multi.js" },
     { "source": "/api/generate-eval", "destination": "/api/generate-eval.js" },
     { "source": "/api/generate-eval-v2", "destination": "/api/generate-eval-v2.js" },
     { "source": "/api/(.*)", "destination": "/api/index.js" },
