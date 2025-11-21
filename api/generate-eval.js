@@ -1,6 +1,7 @@
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, BorderStyle, AlignmentType, HeadingLevel } from 'docx';
 import { DESCRIPTEURS_COMPLETS } from './descripteurs-complets.js';
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import JSZip from 'jszip';
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
@@ -508,6 +509,81 @@ function createEvaluationDocument(data) {
     return doc;
 }
 
+/**
+ * Génère un document d'évaluation pour un critère spécifique
+ */
+async function generateDocumentForCritere({
+    critere,
+    matiere,
+    classe,
+    classeKey,
+    unite,
+    yearData,
+    criterionData
+}) {
+    // Extraire les sous-critères
+    const subCriteria = getAllSubCriteria(criterionData);
+    
+    console.log(`[INFO] ${Object.keys(subCriteria).length} sous-critères trouvés pour ${critere}`);
+    
+    // Générer les exercices
+    const exerciseResult = await generateExercicesWithGemini({
+        matiere,
+        classe: classeKey,
+        uniteTitle: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+        enonce: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+        criteres: [critere],
+        descripteurs: { [critere]: criterionData }
+    });
+    
+    const exercicesGenerated = exerciseResult.exercices[critere] || {};
+    
+    // Préparer les données pour le document
+    const sousCriteres = Object.entries(subCriteria).map(([roman, nom]) => ({
+        roman: roman,
+        nom: nom
+    }));
+    
+    const descripteurs = [
+        { niveaux: '1-2', descripteur: criterionData.niveaux['1-2'] || '' },
+        { niveaux: '3-4', descripteur: criterionData.niveaux['3-4'] || '' },
+        { niveaux: '5-6', descripteur: criterionData.niveaux['5-6'] || '' },
+        { niveaux: '7-8', descripteur: criterionData.niveaux['7-8'] || '' }
+    ];
+    
+    const exercices = Object.entries(subCriteria).map(([roman, nom]) => ({
+        index: `${critere}.${roman}`,
+        nom_sous_critere: nom,
+        description: exercicesGenerated[roman] || `[À compléter par l'enseignant]`
+    }));
+    
+    const documentData = {
+        annee_pei: classe || '',
+        groupe_matiere: matiere || '',
+        titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
+        lettre_critere: critere,
+        nom_objectif_specifique: criterionData.titre,
+        enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
+        sous_criteres: sousCriteres,
+        descripteurs: descripteurs,
+        exercices: exercices
+    };
+    
+    console.log(`[INFO] Création du document Word pour critère ${critere}...`);
+    const doc = createEvaluationDocument(documentData);
+    
+    console.log(`[INFO] Génération du buffer pour critère ${critere}...`);
+    const buffer = await Packer.toBuffer(doc);
+    
+    console.log(`[INFO] Document ${critere} généré avec succès, taille: ${buffer.length}`);
+    
+    return {
+        critere,
+        buffer,
+        filename: `Evaluation_${critere}_${Date.now()}.docx`
+    };
+}
+
 export default async function handler(req, res) {
     if (req.method !== 'POST') {
         return res.status(405).send('Method Not Allowed');
@@ -565,78 +641,80 @@ export default async function handler(req, res) {
                 return res.status(400).json({ error: `Critère ${critere} non trouvé` });
             }
             
-            // Extraire les sous-critères
-            const subCriteria = getAllSubCriteria(criterionData);
-            
-            console.log(`[INFO] ${Object.keys(subCriteria).length} sous-critères trouvés pour ${critere}`);
-            
-            // Générer les exercices
-            const exerciseResult = await generateExercicesWithGemini({
+            const result = await generateDocumentForCritere({
+                critere,
                 matiere,
-                classe: classeKey,
-                uniteTitle: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
-                enonce: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-                criteres: [critere],
-                descripteurs: { [critere]: criterionData }
+                classe,
+                classeKey,
+                unite,
+                yearData,
+                criterionData
             });
             
-            const exercicesGenerated = exerciseResult.exercices[critere] || {};
-            
-            // Préparer les données pour le document
-            const sousCriteres = Object.entries(subCriteria).map(([roman, nom]) => ({
-                roman: roman,
-                nom: nom
-            }));
-            
-            const descripteurs = [
-                { niveaux: '1-2', descripteur: criterionData.niveaux['1-2'] || '' },
-                { niveaux: '3-4', descripteur: criterionData.niveaux['3-4'] || '' },
-                { niveaux: '5-6', descripteur: criterionData.niveaux['5-6'] || '' },
-                { niveaux: '7-8', descripteur: criterionData.niveaux['7-8'] || '' }
-            ];
-            
-            const exercices = Object.entries(subCriteria).map(([roman, nom]) => ({
-                index: `${critere}.${roman}`,
-                nom_sous_critere: nom,
-                description: exercicesGenerated[roman] || `[À compléter par l'enseignant]`
-            }));
-            
-            const documentData = {
-                annee_pei: classe || '',
-                groupe_matiere: matiere || '',
-                titre_unite: unite?.titreUnite || unite?.titre_unite || unite?.titre || '',
-                lettre_critere: critere,
-                nom_objectif_specifique: criterionData.titre,
-                enonce_de_recherche: unite?.enonceDeRecherche || unite?.enonce_recherche || '',
-                sous_criteres: sousCriteres,
-                descripteurs: descripteurs,
-                exercices: exercices
-            };
-            
-            console.log('[INFO] Création du document Word...');
-            const doc = createEvaluationDocument(documentData);
-            
-            console.log('[INFO] Génération du buffer...');
-            const buffer = await Packer.toBuffer(doc);
-            
-            console.log('[INFO] Document généré avec succès, taille:', buffer.length);
-            
             // Envoyer le fichier
-            const ts = Date.now();
-            res.setHeader('Content-Disposition', `attachment; filename=Evaluation_${critere}_${ts}.docx`);
+            res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-            res.status(200).send(buffer);
+            res.status(200).send(result.buffer);
             
         } else {
             // PLUSIEURS CRITÈRES : Générer un ZIP avec tous les documents
             console.log(`[INFO] Génération de ${criteres.length} documents dans un ZIP`);
             
-            // TODO: Implémenter la génération ZIP si nécessaire
-            // Pour l'instant, on génère juste le premier critère
-            return res.status(400).json({ 
-                error: 'Génération multiple de critères pas encore implémentée. Veuillez générer un critère à la fois.',
-                criteres: criteres
+            const zip = new JSZip();
+            const documents = [];
+            
+            // Générer un document pour chaque critère
+            for (const critere of criteres) {
+                console.log(`[INFO] Génération du document pour critère ${critere}...`);
+                
+                const criterionData = yearData?.[critere];
+                if (!criterionData) {
+                    console.warn(`[WARN] Critère ${critere} non trouvé, ignoré`);
+                    continue;
+                }
+                
+                try {
+                    const result = await generateDocumentForCritere({
+                        critere,
+                        matiere,
+                        classe,
+                        classeKey,
+                        unite,
+                        yearData,
+                        criterionData
+                    });
+                    
+                    documents.push(result);
+                    zip.file(result.filename, result.buffer);
+                    
+                } catch (error) {
+                    console.error(`[ERROR] Erreur lors de la génération du critère ${critere}:`, error.message);
+                    // Continue avec les autres critères
+                }
+            }
+            
+            if (documents.length === 0) {
+                return res.status(400).json({ 
+                    error: 'Aucun document généré. Vérifiez les critères fournis.',
+                    criteres: criteres
+                });
+            }
+            
+            console.log(`[INFO] ${documents.length} documents générés, création du ZIP...`);
+            
+            const zipBuffer = await zip.generateAsync({ 
+                type: 'nodebuffer',
+                compression: 'DEFLATE',
+                compressionOptions: { level: 9 }
             });
+            
+            console.log(`[INFO] ZIP créé avec succès, taille: ${zipBuffer.length}`);
+            
+            // Envoyer le ZIP
+            const ts = Date.now();
+            res.setHeader('Content-Disposition', `attachment; filename=Evaluations_${ts}.zip`);
+            res.setHeader('Content-Type', 'application/zip');
+            res.status(200).send(zipBuffer);
         }
 
     } catch (error) {
