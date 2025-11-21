@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Génération Évaluation V2</title>
+    <link rel="stylesheet" href="style.css">
+    <style>
+        .test-container {
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+        
+        .form-group textarea {
+            min-height: 100px;
+            resize: vertical;
+        }
+        
+        .btn {
+            padding: 12px 30px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        .btn:hover {
+            background: #0056b3;
+        }
+        
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .loading.active {
+            display: block;
+        }
+        
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #007bff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .result {
+            display: none;
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        
+        .result.success {
+            display: block;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .result.error {
+            display: block;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Test Génération Évaluation V2</h1>
+        <p>Testez le nouveau format d'évaluation PEI avec les 3 tableaux.</p>
+        
+        <form id="test-form">
+            <div class="form-group">
+                <label for="matiere">Matière :</label>
+                <select id="matiere" required>
+                    <option value="Sciences">Sciences</option>
+                    <option value="Mathématiques">Mathématiques</option>
+                    <option value="Design">Design</option>
+                    <option value="Langue et littérature">Langue et littérature</option>
+                    <option value="Acquisition de langues">Acquisition de langues</option>
+                    <option value="Individus et sociétés">Individus et sociétés</option>
+                    <option value="Arts">Arts</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="classe">Classe :</label>
+                <select id="classe" required>
+                    <option value="PEI 1">PEI 1</option>
+                    <option value="PEI 2">PEI 2</option>
+                    <option value="PEI 3">PEI 3</option>
+                    <option value="PEI 4">PEI 4</option>
+                    <option value="PEI 5">PEI 5</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="titre">Titre de l'unité :</label>
+                <input type="text" id="titre" value="Les forces et le mouvement" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="enonce">Énoncé de recherche :</label>
+                <textarea id="enonce" required>Comment les forces influencent-elles le mouvement des objets?</textarea>
+            </div>
+            
+            <div class="form-group">
+                <label for="critere">Critère à évaluer :</label>
+                <select id="critere" required>
+                    <option value="A">A - Recherche et conception</option>
+                    <option value="B">B - Traitement et évaluation</option>
+                    <option value="C">C - Réflexion sur les répercussions des sciences</option>
+                    <option value="D">D - Réflexion sur les compétences scientifiques</option>
+                </select>
+            </div>
+            
+            <button type="submit" class="btn">Générer l'évaluation</button>
+        </form>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Génération en cours...</p>
+        </div>
+        
+        <div class="result" id="result"></div>
+    </div>
+    
+    <script>
+        document.getElementById('test-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const loadingDiv = document.getElementById('loading');
+            const resultDiv = document.getElementById('result');
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+            
+            // Reset
+            loadingDiv.classList.add('active');
+            resultDiv.className = 'result';
+            resultDiv.textContent = '';
+            submitBtn.disabled = true;
+            
+            try {
+                const formData = {
+                    matiere: document.getElementById('matiere').value,
+                    classe: document.getElementById('classe').value,
+                    unite: {
+                        titreUnite: document.getElementById('titre').value,
+                        titre_unite: document.getElementById('titre').value,
+                        titre: document.getElementById('titre').value,
+                        enonceDeRecherche: document.getElementById('enonce').value,
+                        enonce_recherche: document.getElementById('enonce').value,
+                        objectifs_specifiques_detailles: []
+                    },
+                    criteres: [document.getElementById('critere').value]
+                };
+                
+                console.log('Envoi des données:', formData);
+                
+                const response = await fetch('/api/generate-eval-v2', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(formData)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Erreur lors de la génération');
+                }
+                
+                // Télécharger le fichier
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `Evaluation_${Date.now()}.docx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = '✅ Évaluation générée avec succès ! Le téléchargement devrait commencer automatiquement.';
+                
+            } catch (error) {
+                console.error('Erreur:', error);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ Erreur : ${error.message}`;
+            } finally {
+                loadingDiv.classList.remove('active');
+                submitBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
